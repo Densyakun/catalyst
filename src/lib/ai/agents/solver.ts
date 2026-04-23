@@ -1,15 +1,31 @@
-import { generateObject } from 'ai';
+import { generateObjectWithFallback } from '@/lib/ai/call';
 import { models } from '@/lib/ai/models';
 import { z } from 'zod';
 import { Problem } from '@/lib/types/schema';
+import { ProposedAction } from '@/lib/types/ai';
+
+/**
+ * AIからの生の回答の型
+ */
+interface AISolverResponse {
+  actions: {
+    type: string;
+    description: string;
+    timeCost: string;
+    moneyCost: number;
+    expectedGain: string;
+    risk: string;
+    link?: string;
+    reason: string;
+  }[];
+}
 
 /**
  * Solver Agent
  * 構造化された課題に対して具体的な解決策（Action）を提案します
  */
-export async function proposeActions(problem: Problem) {
-  const { object } = await generateObject({
-    model: models.primary,
+export async function proposeActions(problem: Problem): Promise<ProposedAction[]> {
+  const { object } = await generateObjectWithFallback<AISolverResponse>({
     schema: z.object({
       actions: z.array(z.object({
         type: z.string().describe('行動の種類（例：学習、購入、設定変更）'),
@@ -39,11 +55,12 @@ export async function proposeActions(problem: Problem) {
 3. ユーザーが「これなら自分でもできる」「損をしない」と思えるような、心理的ハードルの低い提案を心がけてください。
 4. もし適切な解決策が既存のサービスにない場合は、「代替案の作成（例：自分で小さなプロトタイプを作る、コミュニティで募集する）」など、未来を切り拓く提案を含めてください。
 `,
-  });
+  }, models.primary);
 
   return object.actions.map((action, index) => ({
     type: action.type,
     description: action.description,
+    reason: action.reason,
     cost: {
       time: action.timeCost,
       money: action.moneyCost,
