@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Send, ArrowRight, Loader2 } from 'lucide-react';
+import { Sparkles, Send, ArrowRight, Loader2, RotateCcw, Play } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface IntakeWizardProps {
   onResult: (result: any) => void;
@@ -13,20 +14,68 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [resumePrompt, setResumePrompt] = useState<any>(null);
 
-  // 最初の質問を取得
+  // 起動時に未完了のセッションがあるか確認
   useEffect(() => {
-    fetchNextStep([]);
+    checkActiveSession();
   }, []);
+
+  const checkActiveSession = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      fetchNextStep([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('diagnostic_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_completed', false)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (data && !error) {
+      setResumePrompt(data);
+    } else {
+      fetchNextStep([]);
+    }
+  };
+
+  const handleResume = (session: any) => {
+    setAnswers(session.answers);
+    setCurrentStep(session.current_question);
+    setSessionId(session.id);
+    setResumePrompt(null);
+  };
+
+  const handleStartFresh = () => {
+    setResumePrompt(null);
+    fetchNextStep([]);
+  };
 
   const fetchNextStep = async (currentAnswers: any[]) => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: currentAnswers }),
+        body: JSON.stringify({ 
+          answers: currentAnswers,
+          sessionId: sessionId 
+        }),
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'サーバーでエラーが発生しました。');
+      }
+
       const data = await res.json();
       
       if (data.type === 'result') {
@@ -34,11 +83,16 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
       } else {
         setCurrentStep(data);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Wizard error:', err);
+      setError(err.message || '通信エラーが発生しました。しばらく待ってから再試行してください。');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRetry = () => {
+    fetchNextStep(answers);
   };
 
   const handleAnswer = (answer: string) => {
@@ -47,6 +101,32 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
     setInputValue('');
     fetchNextStep(newAnswers);
   };
+
+  if (resumePrompt) {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="glass-panel"
+        style={{ padding: '3rem', textAlign: 'center' }}
+      >
+        <div style={{ background: 'rgba(99, 102, 241, 0.1)', width: '60px', height: '60px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+          <RotateCcw size={30} className="text-accent" />
+        </div>
+        <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>中断された診断があります</h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '2.5rem' }}>前回の診断を続きから再開しますか？それとも新しく開始しますか？</p>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <button onClick={() => handleResume(resumePrompt)} className="btn-primary" style={{ padding: '1rem' }}>
+            <Play size={18} style={{ marginRight: '0.5rem' }} /> 再開する
+          </button>
+          <button onClick={handleStartFresh} style={{ padding: '1rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '12px', color: 'white' }}>
+            新しく開始
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
 
   if (!currentStep && loading) {
     return (
@@ -74,7 +154,23 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
 
       <div style={{ flex: 1 }}>
         <AnimatePresence mode="wait">
-          {loading ? (
+          {error ? (
+            <motion.div 
+              key="error"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{ padding: '1.5rem', background: 'rgba(255, 68, 68, 0.1)', border: '1px solid #ff4444', borderRadius: '12px', textAlign: 'center' }}
+            >
+              <p style={{ color: '#ff4444', marginBottom: '1rem' }}>{error}</p>
+              <button 
+                onClick={handleRetry}
+                className="btn-primary"
+                style={{ padding: '0.5rem 1.5rem' }}
+              >
+                再試行する
+              </button>
+            </motion.div>
+          ) : loading ? (
             <motion.div 
               key="loading"
               initial={{ opacity: 0 }}

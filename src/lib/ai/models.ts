@@ -16,8 +16,8 @@ const anthropic = isValidKey(process.env.ANTHROPIC_API_KEY) ? createAnthropic({ 
 
 // モデルの定義とスコアリング
 const ALL_MODELS = [
-  { name: 'gemini-3.1-flash-lite', structuringScore: 100, solvingScore: 60, instance: google },
-  { name: 'gemini-3-flash', structuringScore: 95, solvingScore: 85, instance: google },
+  { name: 'gemini-3.1-flash-lite-preview', structuringScore: 100, solvingScore: 60, instance: google },
+  { name: 'gemini-3-flash-preview', structuringScore: 95, solvingScore: 85, instance: google },
   { name: 'gemini-2.5-flash-lite', structuringScore: 90, solvingScore: 55, instance: google },
   { name: 'gemini-2.5-flash', structuringScore: 85, solvingScore: 75, instance: google },
   { name: 'gpt-4o-mini', structuringScore: 90, solvingScore: 65, instance: openai },

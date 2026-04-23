@@ -9,10 +9,11 @@ import { ProblemCluster } from '@/lib/types/ai';
  * 蓄積された個人の課題を分析し、共通の「社会課題クラスター」を生成・更新します。
  */
 export async function updateClusters() {
-  // ... (取得処理は変更なし)
+  // 1. 最近の課題を一定数取得（ユーザーIDが紐付いているもののみ）
   const { data: problems, error: pError } = await supabase
     .from('problems')
     .select('id, context, goal, tags')
+    .not('user_id', 'is', null) // アカウント機能以前のデータを集計から除外
     .order('created_at', { ascending: false })
     .limit(50);
 

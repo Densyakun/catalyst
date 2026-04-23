@@ -6,13 +6,26 @@ import { supabase } from '@/lib/supabase';
 
 export async function POST(req: Request) {
   try {
-    const { answers } = await req.json();
+    const { answers, sessionId } = await req.json();
+
+    // ユーザー情報の取得
+    const { data: { user } } = await supabase.auth.getUser();
 
     // 次のステップを取得
     const step = await getNextIntakeStep(answers);
 
     // まだ質問が続く場合
     if (step.type === 'question') {
+      if (user) {
+        await supabase.from('diagnostic_sessions').upsert({
+          id: sessionId || undefined,
+          user_id: user.id,
+          answers,
+          current_question: step,
+          is_completed: false,
+          updated_at: new Date().toISOString()
+        });
+      }
       return NextResponse.json(step);
     }
 
@@ -21,10 +34,19 @@ export async function POST(req: Request) {
     const results = [];
 
     for (const pData of problemsData) {
-      // 各課題を Supabase に保存
+      // データベースへの保存
       const { data: problem, error: pError } = await supabase
         .from('problems')
-        .insert([pData])
+        .insert({
+          context: pData.context,
+          symptoms: pData.symptoms,
+          constraints: pData.constraints,
+          goal: pData.goal,
+          severity: pData.severity,
+          frequency: pData.frequency,
+          tags: pData.tags,
+          user_id: user?.id // ログインユーザーIDを紐付け
+        })
         .select()
         .single();
 
@@ -35,14 +57,16 @@ export async function POST(req: Request) {
 
       const actionsWithId = actions.map(a => ({
         description: a.description,
-        reason: a.reason || '', // schemaに合わせて調整
+        reason: a.reason,
         type: a.type,
-        cost: a.cost,
+        time_cost: a.cost.time,
+        money_cost: a.cost.money,
         expected_gain: a.expectedGain,
         risk: a.risk,
         link: a.link,
         is_recommended: a.isRecommended,
-        problem_id: problem.id
+        problem_id: problem.id,
+        user_id: user?.id // アクションにもユーザーIDを紐付け（RLSのため）
       }));
 
       const { data: savedActions, error: aError } = await supabase
@@ -56,6 +80,11 @@ export async function POST(req: Request) {
         problem,
         actions: savedActions
       });
+    }
+
+    // セッションの完了処理
+    if (user && sessionId) {
+      await supabase.from('diagnostic_sessions').update({ is_completed: true }).eq('id', sessionId);
     }
 
     // 自律的進化：クラスターを非同期で更新（待機せずにレスポンスを返す）
