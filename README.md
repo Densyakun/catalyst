@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Catalyst - AI 課題解決プラットフォーム
 
-## Getting Started
+Catalystは、ユーザーの抱える不透明な課題をAIが構造化し、具体的なアクションへと変換するプラットフォームです。
+「考える → 行動する → 振り返る」のサイクルを回すことで、目標達成を支援します。
 
-First, run the development server:
+## 主な機能
+
+- **課題の構造化**: 曖昧な悩みを整理し、重要度や頻度を分析。
+- **解決策の提案**: 推奨アクション、リスク、コストを提示。
+- **データ永続化**: Supabase (PostgreSQL) を利用した進捗管理。
+- **プレミアムデザイン**: ダークモードを基調としたモダンなUI。
+
+## AI モデルの自動選択
+
+Catalyst は、設定された環境変数（APIキー）を検知し、タスクの性質に合わせて最適な AI を自動的に選択します。
+
+| タスク | 役割 | 優先順位 (自動切替) |
+| :--- | :--- | :--- |
+| **構造化 (Intake)** | 課題の整理・データ化 | 1. Gemini 1.5 Flash / 2. GPT-4o-mini / 3. Claude 3.5 |
+| **解決提案 (Solver)** | 具体的なアクションの立案 | 1. Claude 3.5 Sonnet / 2. GPT-4o / 3. Gemini 1.5 Flash |
+
+- **単一のキーのみ設定**: そのモデルがすべてのタスクを担当します。
+- **複数のキーを設定**: 上記の優先順位に従って、タスクごとに最適な AI がハイブリッドで動作します。
+
+## セットアップ
+
+### 1. 依存関係のインストール
+
+```bash
+npm install
+```
+
+### 2. 環境変数の設定
+
+`.env.local` ファイルを作成し、利用可能な AI のキーを少なくとも1つ設定してください。
+
+- `GOOGLE_GENERATIVE_AI_API_KEY`: (推奨) 無料枠が広く、構造化に最適。
+- `ANTHROPIC_API_KEY`: (推奨) 高度な解決策の提案に最適。
+- `OPENAI_API_KEY`: 汎用的な利用に。
+- `NEXT_PUBLIC_SUPABASE_URL`: Supabase URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase Anon Key
+
+### 3. データベースの構築
+
+[Supabase](https://supabase.com/) の SQL Editor を使用して、付属の SQL スクリプトを実行してください。
+（スクリプトの内容は `supabase_schema.sql` として提供されています）
+
+## 起動方法
+
+開発サーバーを起動します：
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+# または
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開いてください。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 技術スタック
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework**: Next.js (App Router)
+- **Styling**: Vanilla CSS / CSS Variables / Framer Motion
+- **Database**: Supabase (PostgreSQL)
+- **AI**: Vercel AI SDK / OpenAI (GPT-4o-mini)
+- **Icons**: Lucide React
