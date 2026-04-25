@@ -7,34 +7,33 @@ import { IntakeStep, StructuredProblem } from '@/lib/types/ai';
  * Intake Agent: 次のステップ（質問または結果）を決定します
  */
 export async function getNextIntakeStep(answers: { question: string, answer: string }[]): Promise<IntakeStep> {
-  const history = answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
+  // 直近5件の履歴のみを保持してトークンを節約
+  const recentAnswers = answers.slice(-5);
+  const history = recentAnswers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
 
   const { object } = await generateObjectWithFallback<IntakeStep>({
     schema: z.object({
-      type: z.enum(['question', 'result']).describe('次のステップの種類'),
-      question: z.string().optional().describe('次の質問内容（typeがquestionの場合）'),
-      options: z.array(z.string()).optional().describe('ユーザーが選択しやすい回答の選択肢'),
-      is_final: z.boolean().describe('これが最後の質問か、または結果に進むべきか'),
+      type: z.enum(['question', 'result']).describe('ステップ種別'),
+      question: z.string().optional().describe('質問文'),
+      options: z.array(z.string()).optional().describe('選択肢'),
+      is_final: z.boolean().describe('終了フラグ'),
     }),
-    prompt: `あなたは Catalyst システムの Intake エージェントです。
-ユーザーの「考える負担」を減らしながら、課題を構造化するために必要な情報を収集してください。
+    prompt: `Catalyst Intakeエージェント。ユーザーの課題を特定せよ。
+【憲法】
+1. ナビゲーション: 具体的選択肢で迷わせない。
+2. 自由度: 必ず「その他」を含めるか促す。
+3. 本音: 誘導せず生の声を引き出す。
 
-【出力形式の例】
-必ず以下の形式で回答してください：
+【出力例】
 {
   "type": "question",
-  "question": "今回解決したい課題の領域はどれに近いですか？",
-  "options": ["仕事・キャリア", "生活・家計", "人間関係", "健康・メンタル", "その他"],
+  "question": "領域は？",
+  "options": ["仕事", "生活", "人間関係", "その他"],
   "is_final": false
 }
 
-【ガイドライン】
-1. 質問文(question)には、選択肢やMarkdownの記号を含めないでください。
-2. ユーザーが選べる回答を、必ず options 配列に3〜5個含めてください。
-3. ユーザーの入力を踏まえ、課題の本質を深掘りする質問を1つずつ投げかけてください。
-
-【これまでの対話内容】
-${history || 'まだ対話は始まっていません。'}
+【履歴(直近5件)】
+${history || 'なし'}
 `,
   }, models.structuring as any);
 
@@ -45,22 +44,26 @@ ${history || 'まだ対話は始まっていません。'}
  * 最終的な構造化（複数の課題に分解可能）
  */
 export async function structureProblem(answers: { question: string, answer: string }[]): Promise<StructuredProblem[]> {
-  const history = answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
+  // トークン節約のため全回答を使用（通常は3-5問なので問題ないが念のため制限）
+  const history = answers.slice(-10).map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
 
   const { object } = await generateObjectWithFallback<{ problems: StructuredProblem[] }>({
     schema: z.object({
       problems: z.array(z.object({
-        context: z.string().describe('課題のバックグラウンドや文脈'),
-        symptoms: z.string().describe('具体的に起きている困りごと'),
-        constraints: z.string().describe('制限事項や不可能なこと'),
-        goal: z.string().describe('最終的にどうなりたいか'),
-        severity: z.number().min(1).max(10).describe('1(低)-10(高)の深刻度'),
-        frequency: z.string().describe('発生頻度の推定'),
-        tags: z.array(z.string()).describe('ドメインを特定するタグ'),
-      })).min(1).describe('抽出された課題のリスト'),
+        context: z.string().describe('文脈'),
+        symptoms: z.string().describe('症状'),
+        constraints: z.string().describe('制約'),
+        goal: z.string().describe('ゴール'),
+        severity: z.number().min(1).max(10).describe('深刻度'),
+        frequency: z.string().describe('頻度'),
+        tags: z.array(z.string()).describe('タグ'),
+        personal_priority: z.number().describe('個人重要度(0-1)'),
+      })).min(1),
     }),
-    prompt: `以下の対話履歴から、課題を抽出して構造化データに変換してください。
-ユーザーの入力に複数の異なる悩みや問題が含まれている場合は、それらを「解決可能な最小単位」に分解し、複数の課題として出力してください。
+    prompt: `対話履歴から課題を構造化せよ。
+
+【算出指針(personal_priority)】
+0.0-1.0の範囲で。緊急性、影響度、本人の意志を考慮。
 
 【対話履歴】
 ${history}
@@ -69,7 +72,8 @@ ${history}
 
   return object.problems.map(p => ({
     ...p,
-    priority: Math.round(p.severity * 1.5),
+    social_impact: 0,   // 後続の処理で算出
+    priority_score: 0,  // 後続の処理で算出
     status: 'unsolved' as const,
   }));
 }

@@ -11,6 +11,7 @@ export async function generateObjectWithFallback<T>(options: any, models: any[])
       const result = await generateObject({
         ...options,
         model,
+        maxTokens: options.maxTokens ?? 1000,
       });
       return result as unknown as { object: T };
     } catch (error: any) {
@@ -33,6 +34,7 @@ export async function generateTextWithFallback(options: any, models: any[]) {
       return await generateText({
         ...options,
         model,
+        maxTokens: options.maxTokens ?? 1000,
       });
     } catch (error: any) {
       console.warn(`Model failed, trying next... Error: ${error.message}`);

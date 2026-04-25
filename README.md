@@ -1,62 +1,60 @@
-# Catalyst - AI 課題解決プラットフォーム
+# Catalyst: 意思決定データ駆動型 自律進化インフラ
 
-Catalystは、ユーザーの抱える不透明な課題をAIが構造化し、具体的なアクションへと変換するプラットフォームです。
-「考える → 行動する → 振り返る」のサイクルを回すことで、目標達成を支援します。
+Catalystは、個人の抱える不透明な課題をAIが構造化し、具体的なアクションへと変換し、最終的に社会課題の解決まで接続する「意思決定インフラ」です。
 
-## 主な機能
+## 1. Catalyst 憲法 (The Constitution)
 
-- **課題の構造化**: 曖昧な悩みを整理し、重要度や頻度を分析。
-- **解決策の提案**: 推奨アクション、リスク、コストを提示。
-- **データ永続化**: Supabase (PostgreSQL) を利用した進捗管理。
-- **プレミアムデザイン**: ダークモードを基調としたモダンなUI。
+各AIエージェントは、以下の3原則に基づいた「行動設計系」のプロンプトで動作します。
 
-## AI モデルの自動選択とフォールバック
+1. **ナビゲーション（迷わず選べるが、自分で決めたと思える）**
+   - ユーザーの「考える負担」を極限まで減らしつつ、選択の自由を奪わず、本音（データの純度）を保護する。
+2. **エンパワーメント（損を理解できるが、押し付けられない）**
+   - 損失回避の心理に寄り添いリスクを提示するが、常に「逃げ道（代替案）」と「スモールステップ」を提供し、実行の勇気を与える。
+3. **バリデーション（一人の問題が、自然に社会に繋がる）**
+   - 「あなたは一人ではない」という共感（可視化）から始め、段階的に共通課題（クラスター）への協力と連帯へと導く。
 
-Catalyst は、設定された環境変数（APIキー）を検知し、タスクの性質（構造化 or 解決提案）に合わせて最適な AI を自動的に選択します。
+## 2. 意思決定プロトコル (The 6-Step Protocol)
 
-- **スコアリングによる最適化**: 各モデルのコスト・速度・推論能力を数値化し、現在利用可能なモデルの中から最も「コスパ」の良い順序で実行します。
-- **自動フォールバック**: 特定のモデルが高負荷などでエラーを返した場合、即座に次に最適なモデルへ自動で切り替えて再試行します。
-- **ハイブリッド構成**: 複数のプロバイダー（Google, OpenAI, Anthropic）のキーを設定することで、特定のベンダーに依存しない安定した動作が可能です。
+1. **収集 (Intake)**: 対話を通じて、課題の背景(Context)、症状(Symptoms)、制約(Constraints)を抽出。
+2. **構造化 (Structuring)**: 収集データを重要度、頻度、タグ等に数値化し、意思決定データとして正規化。
+3. **優先度決定 (Prioritizing)**: 複数の課題から、解決の緊急性とインパクトに基づいて着手すべき課題を特定。
+4. **解決提案 (Solving)**: 推奨アクションと低コストな代替案を提示。リスクと期待利得を明示。
+5. **実行支援 (Execution)**: 外部サービス連携や検索URL生成、リマインド設定等を通じて行動をトリガー。
+6. **評価 (Evaluating)**: 実行結果と満足度を `outcomes` として記録し、将来の提案精度を向上（※開発中）。
 
-## セットアップ
+## 3. 自律的インフラ機能 (Autonomous Features)
+
+- **AI モデルの自律選択とフォールバック**: 
+  - タスクの性質（構造化 vs 解決提案）に合わせて最適なモデル（Gemini, GPT, Claude等）を自動選択。
+  - エラー検知時に即座に代替モデルへ切り替える「自己修復型プロバイダー冗長性」。
+- **診断セッションの永続化**:
+  - 診断の進捗をリアルタイムに保存し、中断してもいつでも再開可能。
+- **エージェンティック UI (Self-Mutating UI)**:
+  - `Clusterer Agent` が共通課題を特定した際、その課題に最適な「協力用UI（データ収集、署名、リソース共有等）」を自律的に設計・生成。
+
+## 4. 技術スタック
+
+- **Frontend**: Next.js (App Router), React, Framer Motion
+- **Backend**: Next.js API Routes, Vercel
+- **Database/Auth**: Supabase (PostgreSQL)
+- **AI**: Vercel AI SDK (Google Generative AI, OpenAI, Anthropic)
+
+## 5. セットアップ
 
 ### 1. 依存関係のインストール
-
 ```bash
 npm install
 ```
 
 ### 2. 環境変数の設定
-
-`.env.local` ファイルを作成し、利用可能な AI のキーを少なくとも1つ設定してください。
-
-- `GOOGLE_GENERATIVE_AI_API_KEY`: (推奨) 無料枠が広く、構造化に最適。
-- `ANTHROPIC_API_KEY`: (推奨) 高度な解決策の提案に最適。
-- `OPENAI_API_KEY`: 汎用的な利用に。
-- `NEXT_PUBLIC_SUPABASE_URL`: Supabase URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase Anon Key
-
-### 3. データベースの構築
-
-[Supabase](https://supabase.com/) の SQL Editor を使用して、付属の SQL スクリプトを実行してください。
-（スクリプトの内容は `supabase_schema.sql` として提供されています）
-
-## 起動方法
-
-開発サーバーを起動します：
-
-```bash
-npm run dev
-# または
-bun dev
+`.env.local` に API キーを設定してください。
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+GOOGLE_GENERATIVE_AI_API_KEY=...
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
 ```
 
-ブラウザで [http://localhost:3000](http://localhost:3000) を開いてください。
-
-## 技術スタック
-
-- **Framework**: Next.js (App Router)
-- **Styling**: Vanilla CSS / CSS Variables / Framer Motion
-- **Database**: Supabase (PostgreSQL)
-- **AI**: Vercel AI SDK / OpenAI (GPT-4o-mini)
-- **Icons**: Lucide React
+### 3. データベースのセットアップ
+`supabase_migration_v2.sql` および各追加 SQL を Supabase SQL Editor で実行してください。

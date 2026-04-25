@@ -24,36 +24,43 @@ interface AISolverResponse {
  * Solver Agent
  * 構造化された課題に対して具体的な解決策（Action）を提案します
  */
-export async function proposeActions(problem: Problem): Promise<ProposedAction[]> {
+export async function proposeActions(
+  problem: Problem, 
+  activitySummary?: { visitCount: number, previousClicks: number }
+): Promise<ProposedAction[]> {
+  const activityContext = activitySummary 
+    ? `【ユーザーの行動履歴】
+- この課題に関連する訪問回数: ${activitySummary.visitCount}回
+- 過去の提案へのクリック回数: ${activitySummary.previousClicks}回
+${activitySummary.visitCount > 3 && activitySummary.previousClicks === 0 ? '※ユーザーは興味を持っていますが、行動に移せていません。よりハードルの低い、確実な一歩を提案してください。' : ''}`
+    : '';
+
   const { object } = await generateObjectWithFallback<AISolverResponse>({
     schema: z.object({
       actions: z.array(z.object({
-        type: z.string().describe('行動の種類（例：学習、購入、設定変更）'),
-        description: z.string().describe('具体的なアクション内容'),
-        timeCost: z.string().describe('予想される時間コスト'),
-        moneyCost: z.number().describe('予想される金銭的コスト (円)'),
-        expectedGain: z.string().describe('期待される効果やメリット'),
-        risk: z.string().describe('想定されるリスク'),
-        link: z.string().optional().describe('関連する参考リンクやツールのURL'),
-        reason: z.string().describe('この解決策を提案する理由'),
+        type: z.string().describe('種類'),
+        description: z.string().describe('内容'),
+        timeCost: z.string().describe('時間'),
+        moneyCost: z.number().describe('金額'),
+        expectedGain: z.string().describe('メリット'),
+        risk: z.string().describe('リスク/損失'),
+        link: z.string().optional().describe('URL'),
+        reason: z.string().describe('理由'),
       })).min(1).max(3),
     }),
-    prompt: `あなたは Catalyst システムの Solver エージェントです。
-このシステムの目的は、ユーザーの「考える」負担を極限まで減らし、「損を回避したい（後悔したくない）」という心理に応え、確実な「実行」へ誘導することです。
+    prompt: `Catalyst Solverエージェント。実行へ誘導せよ。
+【ルール】
+1. 事実に基づき未解決時の損失を提示。
+2. 推奨案+極低コスト案(スモールステップ)を提示。
+3. 選択の自由を尊重し、納得感ある理由を添える。
 
-以下の課題に対して、具体的で実行可能な解決策を最大3つ提案してください。
-
-【課題の詳細】
+【課題】
 文脈: ${problem.context}
 症状: ${problem.symptoms}
 制約: ${problem.constraints}
-ゴール: ${problem.goal}
+目標: ${problem.goal}
 
-【提案のルール】
-1. 1つは最も推奨されるアクションとし、その他は代替案とします。
-2. リンク(link)は、必ず有効なURLにしてください。特定のURLが不明な場合は、適切な検索キーワードを用いたGoogle検索URL（例: https://www.google.com/search?q=キーワード）を生成してください。
-3. ユーザーが「これなら自分でもできる」「損をしない」と思えるような、心理的ハードルの低い提案を心がけてください。
-4. もし適切な解決策が既存のサービスにない場合は、「代替案の作成（例：自分で小さなプロトタイプを作る、コミュニティで募集する）」など、未来を切り拓く提案を含めてください。
+${activityContext}
 `,
   }, models.primary);
 

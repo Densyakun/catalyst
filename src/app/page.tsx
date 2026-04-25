@@ -174,11 +174,30 @@ export default function Home() {
                 {clusters.length > 0 && (
                   <div style={{ marginBottom: '2rem' }}>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>共有されている課題</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
                       {clusters.map(c => (
-                        <div key={c.id} className="glass-panel" style={{ padding: '1rem', fontSize: '0.9rem', cursor: 'pointer' }}>
-                          <h4 style={{ marginBottom: '0.5rem' }}>{c.title}</h4>
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{c.description}</p>
+                        <div key={c.id} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div>
+                            <h4 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--accent-color)' }}>{c.title}</h4>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{c.description}</p>
+                          </div>
+                          
+                          {c.dynamic_ui && (
+                            <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)' }}>
+                              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.8rem', fontStyle: 'italic' }}>
+                                ✨ AIによる協力提案: {c.dynamic_ui.description}
+                              </p>
+                              <button 
+                                className="btn-primary" 
+                                style={{ width: '100%', padding: '0.6rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                                onClick={() => alert(`${c.dynamic_ui.actionLabel} 機能は現在AIが構築中です...`)}
+                              >
+                                {c.dynamic_ui.type === 'data_gathering' && <Zap size={14} />}
+                                {c.dynamic_ui.type === 'petition' && <CheckCircle2 size={14} />}
+                                {c.dynamic_ui.actionLabel}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

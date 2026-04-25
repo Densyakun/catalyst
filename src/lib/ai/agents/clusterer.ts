@@ -9,13 +9,13 @@ import { ProblemCluster } from '@/lib/types/ai';
  * 蓄積された個人の課題を分析し、共通の「社会課題クラスター」を生成・更新します。
  */
 export async function updateClusters() {
-  // 1. 最近の課題を一定数取得（ユーザーIDが紐付いているもののみ）
+  // 1. 最近の課題を20件取得
   const { data: problems, error: pError } = await supabase
     .from('problems')
     .select('id, context, goal, tags')
     .not('user_id', 'is', null) // アカウント機能以前のデータを集計から除外
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(20);
 
   if (pError || !problems || problems.length < 3) return;
 
@@ -23,26 +23,28 @@ export async function updateClusters() {
   const { object } = await generateObjectWithFallback<{ clusters: ProblemCluster[] }>({
     schema: z.object({
       clusters: z.array(z.object({
-        title: z.string().describe('クラスターのキャッチーなタイトル'),
-        description: z.string().describe('この課題群の共通点や背景の要約'),
-        tags: z.array(z.string()).describe('関連するタグ'),
-        representative_problem_ids: z.array(z.string()).describe('このクラスターに属する代表的な課題のID'),
+        title: z.string().describe('タイトル'),
+        description: z.string().describe('要約'),
+        tags: z.array(z.string()).describe('タグ'),
+        representative_problem_ids: z.array(z.string()).describe('課題IDリスト'),
+        dynamic_ui: z.object({
+          type: z.enum(['collaboration', 'resource_share', 'petition', 'data_gathering']).describe('種別'),
+          actionLabel: z.string().describe('ラベル'),
+          description: z.string().describe('理由'),
+          target_goal: z.string().optional().describe('目標'),
+        }),
       })).max(5),
     }),
-    prompt: `あなたは Catalyst システムの Insight エージェントです。
-以下の個々の課題データを分析し、共通する「悩みや課題のクラスター」を最大5つ作成してください。
-
-【目的】
-個人の悩みを集約し、「多くの人が直面している共通の課題」として可視化することで、解決策の共有を促進します。
+    prompt: `Catalyst Insightエージェント。共通課題(クラスター)を抽出せよ。
+【ミッション】
+1. 孤独の解消: 「自分だけではない」ことを可視化。
+2. 段階的協力: まず実態把握(data_gathering)等の低ハードルな協力を提案。
 
 【課題データ】
 ${JSON.stringify(problems)}
-
-【出力のガイドライン】
-- 抽象化しすぎず、かつ個別具体的すぎない、人々の共感を呼ぶタイトルにしてください。
-- 解決のヒントになるような説明を添えてください。
 `,
-  }, models.structuring);
+    maxTokens: 2000,
+  }, models.structuring as any);
 
   // 3. 取得したクラスター情報を DB に反映
   if (object && object.clusters && object.clusters.length > 0) {
@@ -54,7 +56,8 @@ ${JSON.stringify(problems)}
         title: c.title,
         description: c.description,
         tags: c.tags,
-        problem_count: c.representative_problem_ids.length
+        problem_count: c.representative_problem_ids.length,
+        dynamic_ui: c.dynamic_ui // 動的UIの定義を保存
       }))
     );
     if (iError) console.error('Cluster insert error:', iError);

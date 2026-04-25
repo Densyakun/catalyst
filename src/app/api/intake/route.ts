@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getNextIntakeStep, structureProblem } from '@/lib/ai/agents/intake';
+import { prioritizeProblem } from '@/lib/ai/agents/prioritizer';
 import { proposeActions } from '@/lib/ai/agents/solver';
 import { updateClusters } from '@/lib/ai/agents/clusterer';
 import { supabase } from '@/lib/supabase';
@@ -29,8 +30,15 @@ export async function POST(req: Request) {
       return NextResponse.json(step);
     }
 
-    // 診断完了：構造化（複数課題の可能性あり）
-    const problemsData = await structureProblem(answers);
+    // 診断完了：構造化
+    const rawProblems = await structureProblem(answers);
+    const problemsData = [];
+    
+    for (const p of rawProblems) {
+      const prioritized = await prioritizeProblem(p);
+      problemsData.push(prioritized);
+    }
+
     const results = [];
 
     for (const pData of problemsData) {
@@ -38,6 +46,7 @@ export async function POST(req: Request) {
       const { data: problem, error: pError } = await supabase
         .from('problems')
         .insert({
+          user_id: user?.id,
           context: pData.context,
           symptoms: pData.symptoms,
           constraints: pData.constraints,
@@ -45,15 +54,40 @@ export async function POST(req: Request) {
           severity: pData.severity,
           frequency: pData.frequency,
           tags: pData.tags,
-          user_id: user?.id // ログインユーザーIDを紐付け
+          personal_priority: pData.personal_priority,
+          social_impact: pData.social_impact,
+          priority_score: pData.priority_score,
+          cluster_id: pData.cluster_id,
+          status: 'unsolved'
         })
         .select()
         .single();
 
       if (pError) throw pError;
 
-      // 各課題に対するアクションの生成
-      const actions = await proposeActions(problem);
+      // ユーザーの過去の行動（訪問・クリック）を取得して提案に反映させる
+      let activitySummary = { visitCount: 0, previousClicks: 0 };
+      if (user) {
+        const { count: visitCount } = await supabase
+          .from('user_activity')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('activity_type', 'visit');
+        
+        const { count: clickCount } = await supabase
+          .from('user_activity')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('activity_type', 'click_action');
+
+        activitySummary = { 
+          visitCount: visitCount || 0, 
+          previousClicks: clickCount || 0 
+        };
+      }
+
+      // 各課題に対するアクションの生成（活動データを考慮）
+      const actions = await proposeActions(problem, activitySummary);
 
       const actionsWithId = actions.map(a => ({
         description: a.description,
