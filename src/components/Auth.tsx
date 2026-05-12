@@ -2,18 +2,23 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Sparkles, ArrowRight, User, Mail, Lock, LogIn } from 'lucide-react';
+import { Sparkles, ArrowRight, User, Mail, Lock } from 'lucide-react';
+import { isSignupEnabled, getAppMode } from '@/lib/featureFlags';
 
 export default function AuthUI() {
+  const signupAllowed = isSignupEnabled();
+  const appMode = getAppMode();
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isEmailMode, setIsEmailMode] = useState(false);
+  const [isEmailMode, setIsEmailMode] = useState(!signupAllowed);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   // 匿名ログイン
   const handleAnonymousSignIn = async () => {
+    if (!signupAllowed) return;
     setLoading(true);
     setError('');
     try {
@@ -33,6 +38,9 @@ export default function AuthUI() {
     setError('');
     try {
       if (isSignUp) {
+        if (!signupAllowed) {
+          throw new Error('新規ユーザー登録は無効化されています。');
+        }
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -55,6 +63,7 @@ export default function AuthUI() {
 
   // OAuth ログイン
   const handleOAuthSignIn = async (provider: 'google' | 'github') => {
+    if (!signupAllowed) return;
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -128,43 +137,63 @@ export default function AuthUI() {
             <button type="submit" disabled={loading} className="btn-primary" style={{ padding: '12px', width: '100%' }}>
               {isSignUp ? '新規登録' : 'ログイン'}
             </button>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-              <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer' }}>
-                {isSignUp ? 'すでにアカウントをお持ちの方' : '新しくアカウントを作成'}
-              </button>
-              <button type="button" onClick={() => setIsEmailMode(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                戻る
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+              {signupAllowed ? (
+                <>
+                  <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer' }}>
+                    {isSignUp ? 'すでにアカウントをお持ちの方' : '新しくアカウントを作成'}
+                  </button>
+                  <button type="button" onClick={() => setIsEmailMode(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                    戻る
+                  </button>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', width: '100%', color: '#ffb86c', background: 'rgba(255, 184, 108, 0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(255, 184, 108, 0.2)', fontSize: '0.85rem' }}>
+                  このインスタンスは個人用です。サインアップは無効化されています。
+                </div>
+              )}
             </div>
           </form>
         )}
 
-        <div style={{ margin: '1rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>または</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
-        </div>
+        {signupAllowed && (
+          <>
+            <div style={{ margin: '1rem 0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>または</span>
+              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+            </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
-          <button 
-            onClick={() => handleOAuthSignIn('google')}
-            style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontSize: '0.9rem' }}
-          >
-            Google
-          </button>
-          <button 
-            onClick={() => handleOAuthSignIn('github')}
-            style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontSize: '0.9rem' }}
-          >
-            <User size={18} /> GitHub
-          </button>
-        </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+              <button 
+                onClick={() => handleOAuthSignIn('google')}
+                style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontSize: '0.9rem' }}
+              >
+                Google
+              </button>
+              <button 
+                onClick={() => handleOAuthSignIn('github')}
+                style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontSize: '0.9rem' }}
+              >
+                <User size={18} /> GitHub
+              </button>
+            </div>
+          </>
+        )}
 
         {error && <p style={{ marginTop: '1rem', color: '#ff6b6b', fontSize: '0.85rem' }}>{error}</p>}
       </div>
 
       <footer style={{ marginTop: '2.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-        匿名で始めても、後からアカウントを連携して<br />データを保存できます。
+        {signupAllowed ? (
+          <>
+            匿名で始めても、後からアカウントを連携して<br />データを保存できます。
+          </>
+        ) : (
+          <>
+            管理者によって事前に登録されたアカウントのみが<br />利用可能です。
+          </>
+        )}
       </footer>
     </div>
   );

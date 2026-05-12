@@ -57,4 +57,49 @@ ANTHROPIC_API_KEY=...
 ```
 
 ### 3. データベースのセットアップ
-`supabase_migration_v2.sql` および各追加 SQL を Supabase SQL Editor で実行してください。
+1. **既存データのバックアップ (推奨)**
+   > [!WARNING]
+   > 本番データベースへのマイグレーション実行前に、必ず Supabase ダッシュボードより既存データのバックアップを取得してください。
+2. `supabase_schema.sql`、`supabase_migration_v2.sql` を Supabase SQL Editor で順に実行します。
+3. 今回のマルチ/シングルハイブリッド用の RLS を適用するため、`supabase_migration_rls.sql` を実行してください。
+
+---
+
+## 6. 家庭用（single）/ 公開用（multi）ハイブリッド運用
+
+Catalyst は同一ソースコードで、個人・家庭で安全にクローズド利用する「家庭用（single）モード」と、パブリック SaaS として公開する「公開用（multi）モード」を安全に切り替えて運用できます。
+
+### 1. 動作モードの切り替え (環境変数)
+`.env.local` にて以下の変数を設定します：
+
+| 環境変数 | 設定値の例 | 説明 |
+| :--- | :--- | :--- |
+| `APP_MODE` / `NEXT_PUBLIC_APP_MODE` | `single` \| `multi` | アプリケーションの動作モード。`single` は家庭用、`multi` は公開用。 |
+| `ENABLE_SIGNUP` / `NEXT_PUBLIC_ENABLE_SIGNUP` | `true` \| `false` | 一般のサインアップ（新規アカウント作成、匿名ログイン含む）を有効にするか。`single` では `false` 推奨。 |
+| `DEFAULT_ADMIN_EMAIL` | `admin@example.com` | 家庭用モード起動時に自動作成する管理者のメールアドレス。 |
+| `DEFAULT_ADMIN_PASSWORD` | `your_secure_password` | 家庭用モード起動時に自動作成する管理者のパスワード。 |
+| `PUBLISH_SHARED_SECRET` | `any_long_random_string` | インスタンス間での「公開申請」の認証に用いる、HS256 署名用の共有キー。 |
+| `SUPABASE_SERVICE_ROLE_KEY` | `your_service_role_key` | サーバーサイドのみで読み込まれる Supabase サービスロールキー。管理処理やデータ連携に使用します。**絶対にクライアントサイドに露出させないでください。** |
+
+### 2. 初期管理者アカウントの自動作成 (家庭用専用)
+家庭用（`single`）モードでデータベースにユーザーが一人も存在しない場合、以下のコマンドで環境変数に基づいた管理者アカウントを安全に自動作成できます：
+
+```bash
+npm run db:init-admin
+```
+
+> [!NOTE]
+> スクリプトは内部的に `@next/env` を使って `.env.local` から安全に設定をロードし、Supabase Admin API を使って確認済みの管理者アカウントを作成します。
+
+### 3. Row Level Security (RLS) による強固な保護
+`supabase_migration_rls.sql` を適用することで、以下の保護が強制されます：
+- **作成者（`created_by`）ベースの制御**: 全ての `problems`, `actions`, `outcomes` レコードは作成者本人のみに SELECT/INSERT/UPDATE/DELETE 権限が与えられます（`auth.uid() = created_by`）。
+- **公開表示（`visibility = 'published'`）**: 公開インスタンスに登録され、`visibility` が `published` に設定されたレコードに限り、未ログインのパブリックユーザーに対しても SELECT（閲覧）のみが許可されます。
+- **公開申請レビューキュー (`published_records`)**: 他の家庭用インスタンスから送られてきた公開申請データは、パブリックアクセスが完全に遮断された `published_records` に登録され、管理者（Service Role）のみがレビューできます。
+
+### 4. インスタンス間の公開申請ワークフロー
+1. **送信側（家庭用）**:
+   ユーザーが特定の問題をエクスポートし、公開用インスタンスへ共有することを申請すると、アプリは `PUBLISH_SHARED_SECRET` で暗号署名された 5 分間有効な短期トークンを付与し、ターゲットの `/api/publish` へデータをセキュアに POST します。
+2. **受信側（公開用）**:
+   POST を受信すると、同じ `PUBLISH_SHARED_SECRET` を使って署名・有効期限を検証します。その後、自動スクリーニング（禁止ワード検出プレースホルダー）を実行し、機密情報の漏洩がないかを自動チェックした上で、`published_records` キューに `pending` または `rejected` の状態で保存します。
+
