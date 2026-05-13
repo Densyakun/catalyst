@@ -17,10 +17,9 @@ const anthropic = isValidKey(process.env.ANTHROPIC_API_KEY) ? createAnthropic({ 
 // モデルの定義とスコアリング
 const ALL_MODELS = [
   // 構造化（Intake）に特化した高速・ライブモデル
-  { name: 'gemini-3.1-flash-live-preview', structuringScore: 110, solvingScore: 70, instance: google },
   { name: 'gemini-3.1-flash-lite-preview', structuringScore: 100, solvingScore: 60, instance: google },
   { name: 'gemini-3.1-flash-tts-preview', structuringScore: 95, solvingScore: 65, instance: google },
-  
+
   // 解決提案（Solver）に特化した高知能・推論モデル
   { name: 'gemini-robotics-er-1.6-preview', structuringScore: 70, solvingScore: 110, instance: google },
   { name: 'claude-3-5-sonnet-20240620', structuringScore: 80, solvingScore: 105, instance: anthropic },
