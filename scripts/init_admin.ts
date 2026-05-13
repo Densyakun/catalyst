@@ -4,8 +4,6 @@ import { loadEnvConfig } from '@next/env';
 const projectDir = process.cwd();
 loadEnvConfig(projectDir);
 
-import { supabaseAdmin } from '../src/lib/supabase-server';
-
 async function initAdmin() {
   console.log('==================================================');
   console.log('           Catalyst Admin Initializer            ');
@@ -28,6 +26,9 @@ async function initAdmin() {
   }
 
   try {
+    // Dynamically import supabaseAdmin AFTER environment variables are fully loaded
+    const { supabaseAdmin } = await import('../src/lib/supabase-server');
+
     console.log('Connecting to Supabase Auth to check for existing users...');
     const { data, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
