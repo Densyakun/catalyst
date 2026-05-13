@@ -9,7 +9,7 @@ async function initAdmin() {
   console.log('           Catalyst Admin Initializer            ');
   console.log('==================================================');
   
-  const appMode = process.env.APP_MODE || process.env.NEXT_PUBLIC_APP_MODE || 'multi';
+  const appMode = process.env.APP_MODE || process.env.NEXT_PUBLIC_APP_MODE || 'single';
   console.log(`Current APP_MODE : ${appMode}`);
 
   if (appMode !== 'single') {
