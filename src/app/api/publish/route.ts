@@ -16,7 +16,8 @@ import { generatePublishToken, verifyPublishToken } from '@/lib/publishToken';
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const appMode = process.env.APP_MODE || process.env.NEXT_PUBLIC_APP_MODE || 'multi';
+    const rawAppMode = process.env.APP_MODE || process.env.NEXT_PUBLIC_APP_MODE || 'single';
+    const appMode = rawAppMode === 'multi' ? 'multi' : 'single';
     const sharedSecret = process.env.PUBLISH_SHARED_SECRET;
 
     if (!sharedSecret) {

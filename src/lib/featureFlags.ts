@@ -14,13 +14,14 @@ export type AppMode = 'single' | 'multi';
 
 /**
  * Returns the current application deployment mode.
+ * Defaults to 'single' (personal/household) mode for safety.
  */
 export function getAppMode(): AppMode {
   const mode = typeof window !== 'undefined'
     ? process.env.NEXT_PUBLIC_APP_MODE
     : (process.env.APP_MODE || process.env.NEXT_PUBLIC_APP_MODE);
 
-  return mode === 'single' ? 'single' : 'multi';
+  return mode === 'multi' ? 'multi' : 'single';
 }
 
 /**
@@ -39,6 +40,6 @@ export function isSignupEnabled(): boolean {
     return rawSignup === 'true' || rawSignup === '1';
   }
 
-  // Fallback defaults based on mode
+  // Fallback defaults based on mode (single mode is false by default for security)
   return mode === 'multi';
 }
