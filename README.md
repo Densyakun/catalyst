@@ -70,16 +70,22 @@ ANTHROPIC_API_KEY=...
 Catalyst は同一ソースコードで、個人・家庭で安全にクローズド利用する「家庭用（single）モード」と、パブリック SaaS として公開する「公開用（multi）モード」を安全に切り替えて運用できます。
 
 ### 1. 動作モードの切り替え (環境変数)
-`.env.local` にて以下の変数を設定します：
+`.env.local` にて以下の変数を設定します。
 
-| 環境変数 | 設定値の例 | 説明 |
-| :--- | :--- | :--- |
-| `APP_MODE` / `NEXT_PUBLIC_APP_MODE` | `single` \| `multi` | アプリケーションの動作モード。`single` は家庭用、`multi` は公開用。 |
-| `ENABLE_SIGNUP` / `NEXT_PUBLIC_ENABLE_SIGNUP` | `true` \| `false` | 一般のサインアップ（新規アカウント作成、匿名ログイン含む）を有効にするか。`single` では `false` 推奨。 |
-| `DEFAULT_ADMIN_EMAIL` | `admin@example.com` | 家庭用モード起動時に自動作成する管理者のメールアドレス。 |
-| `DEFAULT_ADMIN_PASSWORD` | `your_secure_password` | 家庭用モード起動時に自動作成する管理者のパスワード。 |
-| `PUBLISH_SHARED_SECRET` | `any_long_random_string` | インスタンス間での「公開申請」の認証に用いる、HS256 署名用の共有キー。 |
-| `SUPABASE_SERVICE_ROLE_KEY` | `your_service_role_key` | サーバーサイドのみで読み込まれる Supabase サービスロールキー。管理処理やデータ連携に使用します。**絶対にクライアントサイドに露出させないでください。** |
+> [!NOTE]
+> **デフォルト（環境変数未指定時）の挙動について**
+> 既存の動作を壊さないために、環境変数が何も設定されていないプログラム上のデフォルトは **`multi`（公開用）モード** です。
+> 一方、安全のために新規にコピーするテンプレート用ファイル **`.env.local.example` では、最初から `single`（家庭用）モードになる設定値が初期状態として記載されています**。
+
+| 環境変数 | 設定値の例 | デフォルト値（未指定時） | 説明 |
+| :--- | :--- | :--- | :--- |
+| `APP_MODE` / `NEXT_PUBLIC_APP_MODE` | `single` \| `multi` | `multi` | アプリケーションの動作モード。`single` は家庭用、`multi` は公開用。 |
+| `ENABLE_SIGNUP` / `NEXT_PUBLIC_ENABLE_SIGNUP` | `true` \| `false` | `true` (APP_MODEがmultiの場合)<br>`false` (APP_MODEがsingleの場合) | 一般のサインアップ（新規アカウント作成、匿名ログイン含む）を有効にするか。`single` では `false` 推奨。 |
+| `DEFAULT_ADMIN_EMAIL` | `admin@example.com` | (なし) | 家庭用モード起動時に自動作成する管理者のメールアドレス。 |
+| `DEFAULT_ADMIN_PASSWORD` | `your_secure_password` | (なし) | 家庭用モード起動時に自動作成する管理者のパスワード。 |
+| `PUBLISH_SHARED_SECRET` | `any_long_random_string` | (なし) | インスタンス間での「公開申請」の認証に用いる、HS256 署名用の共有キー。 |
+| `SUPABASE_SERVICE_ROLE_KEY` | `your_service_role_key` | (なし) | サーバーサイドのみで読み込まれる Supabase サービスロールキー。管理処理やデータ連携に使用します。**絶対にクライアントサイドに露出させないでください。** |
+
 
 ### 2. 初期管理者アカウントの自動作成 (家庭用専用)
 家庭用（`single`）モードでデータベースにユーザーが一人も存在しない場合、以下のコマンドで環境変数に基づいた管理者アカウントを安全に自動作成できます：
