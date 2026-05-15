@@ -1,47 +1,57 @@
 import { generateObject, generateText } from 'ai';
+import type { z } from 'zod';
+import { assertPortkeyConfigured, getModelForRole, type ModelRole } from './models';
 
-/**
- * 複数のモデルを順に試行し、成功した結果を返します（自作フォールバック）
- */
-export async function generateObjectWithFallback<T>(options: any, models: any[]): Promise<{ object: T }> {
-  let lastError = null;
+/** エージェントから渡す generateObject オプション（model は役割から解決） */
+export type RoleGenerateObjectOptions = {
+  prompt: string;
+  schema: z.ZodType;
+  maxOutputTokens?: number;
+  maxTokens?: number;
+};
 
-  for (const model of models) {
-    try {
-      const result = await generateObject({
-        ...options,
-        model,
-        maxTokens: options.maxTokens ?? 1000,
-      });
-      return result as unknown as { object: T };
-    } catch (error: any) {
-      console.warn(`Model failed, trying next... Error: ${error.message}`);
-      lastError = error;
-      // 高負荷(503, 429)などのエラーの場合のみ次を試す設計も可能ですが、
-      // ここではシンプルに失敗したら次へ進みます
-      continue;
-    }
+/** エージェントから渡す generateText オプション */
+export type RoleGenerateTextOptions = {
+  prompt: string;
+  maxOutputTokens?: number;
+  maxTokens?: number;
+};
+
+function normalizeOutputTokens<T extends RoleGenerateObjectOptions | RoleGenerateTextOptions>(
+  options: T,
+): T {
+  if (options.maxOutputTokens != null || options.maxTokens == null) {
+    return options;
   }
-
-  throw lastError || new Error('All models failed to generate object.');
+  const { maxTokens, ...rest } = options;
+  return { ...rest, maxOutputTokens: maxTokens } as T;
 }
 
-export async function generateTextWithFallback(options: any, models: any[]) {
-  let lastError = null;
+/**
+ * 役割に応じたモデルで structured output を生成する（Portkey 経由）。
+ */
+export async function generateObjectForRole<T>(
+  role: ModelRole,
+  options: RoleGenerateObjectOptions,
+): Promise<{ object: T }> {
+  assertPortkeyConfigured();
+  const result = await generateObject({
+    ...normalizeOutputTokens(options),
+    model: getModelForRole(role),
+  });
+  return { object: result.object as T };
+}
 
-  for (const model of models) {
-    try {
-      return await generateText({
-        ...options,
-        model,
-        maxTokens: options.maxTokens ?? 1000,
-      });
-    } catch (error: any) {
-      console.warn(`Model failed, trying next... Error: ${error.message}`);
-      lastError = error;
-      continue;
-    }
-  }
-
-  throw lastError || new Error('All models failed to generate text.');
+/**
+ * 役割に応じたモデルでテキストを生成する（Portkey 経由）。
+ */
+export async function generateTextForRole(
+  role: ModelRole,
+  options: RoleGenerateTextOptions,
+) {
+  assertPortkeyConfigured();
+  return generateText({
+    ...normalizeOutputTokens(options),
+    model: getModelForRole(role),
+  });
 }

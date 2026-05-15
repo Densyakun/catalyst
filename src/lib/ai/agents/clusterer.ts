@@ -1,5 +1,4 @@
-import { generateObjectWithFallback } from '../call';
-import { models } from '../models';
+import { generateObjectForRole } from '../call';
 import { supabase } from '@/lib/supabase';
 import { z } from 'zod';
 import { ProblemCluster } from '@/lib/types/ai';
@@ -20,7 +19,7 @@ export async function updateClusters() {
   if (pError || !problems || problems.length < 3) return;
 
   // 2. AI に課題のパターンを分析させ、共通クラスターを特定させる
-  const { object } = await generateObjectWithFallback<{ clusters: ProblemCluster[] }>({
+  const { object } = await generateObjectForRole<{ clusters: ProblemCluster[] }>('structuring', {
     schema: z.object({
       clusters: z.array(z.object({
         title: z.string().describe('タイトル'),
@@ -43,8 +42,8 @@ export async function updateClusters() {
 【課題データ】
 ${JSON.stringify(problems)}
 `,
-    maxTokens: 2000,
-  }, models.structuring as any);
+    maxOutputTokens: 2000,
+  });
 
   // 3. 取得したクラスター情報を DB に反映
   if (object && object.clusters && object.clusters.length > 0) {

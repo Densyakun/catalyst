@@ -1,5 +1,4 @@
-import { generateObjectWithFallback } from '@/lib/ai/call';
-import { models } from '@/lib/ai/models';
+import { generateObjectForRole } from '@/lib/ai/call';
 import { z } from 'zod';
 import { IntakeStep, StructuredProblem } from '@/lib/types/ai';
 
@@ -11,11 +10,11 @@ export async function getNextIntakeStep(answers: { question: string, answer: str
   const recentAnswers = answers.slice(-5);
   const history = recentAnswers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
 
-  const { object } = await generateObjectWithFallback<IntakeStep>({
+  const { object } = await generateObjectForRole<IntakeStep>('structuring', {
     schema: z.object({
       type: z.enum(['question', 'result']).describe('ステップ種別'),
-      question: z.string().optional().describe('質問文'),
-      options: z.array(z.string()).optional().describe('選択肢'),
+      question: z.string().describe('質問文（resultの場合は空文字）'),
+      options: z.array(z.string()).describe('選択肢（resultの場合は空配列）'),
       is_final: z.boolean().describe('終了フラグ'),
     }),
     prompt: `Catalyst Intakeエージェント。ユーザーの課題を特定せよ。
@@ -35,7 +34,7 @@ export async function getNextIntakeStep(answers: { question: string, answer: str
 【履歴(直近5件)】
 ${history || 'なし'}
 `,
-  }, models.structuring as any);
+  });
 
   return object;
 }
@@ -47,7 +46,7 @@ export async function structureProblem(answers: { question: string, answer: stri
   // トークン節約のため全回答を使用（通常は3-5問なので問題ないが念のため制限）
   const history = answers.slice(-10).map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n');
 
-  const { object } = await generateObjectWithFallback<{ problems: StructuredProblem[] }>({
+  const { object } = await generateObjectForRole<{ problems: StructuredProblem[] }>('structuring', {
     schema: z.object({
       problems: z.array(z.object({
         context: z.string().describe('文脈'),
@@ -68,7 +67,7 @@ export async function structureProblem(answers: { question: string, answer: stri
 【対話履歴】
 ${history}
 `,
-  }, models.structuring as any);
+  });
 
   return object.problems.map(p => ({
     ...p,

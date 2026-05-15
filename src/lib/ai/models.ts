@@ -1,53 +1,62 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import type { LanguageModel } from 'ai';
 
-// APIキーの有効性チェック
+export type ModelRole = 'structuring' | 'solving';
+
+const PORTKEY_BASE_URL = 'https://api.portkey.ai/v1';
+// SDKの型バリデーションを通過させるための、標準的なOpenAIモデル名をベースにします
+const DEFAULT_MODEL_PLACEHOLDER = 'gpt-4o-mini';
+
 function isValidKey(key: string | undefined): key is string {
   if (!key) return false;
   const placeholderPatterns = ['your_', '_here', 'api_key', 'example'];
-  return !placeholderPatterns.some(pattern => key.toLowerCase().includes(pattern));
+  return !placeholderPatterns.some((pattern) => key.toLowerCase().includes(pattern));
 }
 
-// プロバイダーの初期化
-const google = isValidKey(process.env.GOOGLE_GENERATIVE_AI_API_KEY) ? createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY }) : null;
-const openai = isValidKey(process.env.OPENAI_API_KEY) ? createOpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
-const anthropic = isValidKey(process.env.ANTHROPIC_API_KEY) ? createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+export function assertPortkeyConfigured(): void {
+  if (!isValidKey(process.env.PORTKEY_API_KEY)) {
+    throw new Error('PORTKEY_API_KEY is not set. Get your key at https://app.portkey.ai/');
+  }
+}
 
-// モデルの定義とスコアリング
-const ALL_MODELS = [
-  // 構造化（Intake）に特化した高速・ライブモデル
-  { name: 'gemini-3.1-flash-live-preview', structuringScore: 110, solvingScore: 70, instance: google },
-  { name: 'gemini-3.1-flash-lite-preview', structuringScore: 100, solvingScore: 60, instance: google },
-  { name: 'gemini-3.1-flash-tts-preview', structuringScore: 95, solvingScore: 65, instance: google },
-  
-  // 解決提案（Solver）に特化した高知能・推論モデル
-  { name: 'gemini-robotics-er-1.6-preview', structuringScore: 70, solvingScore: 110, instance: google },
-  { name: 'claude-3-5-sonnet-20240620', structuringScore: 80, solvingScore: 105, instance: anthropic },
-  { name: 'gemma-4-31b-it', structuringScore: 85, solvingScore: 100, instance: google },
-  { name: 'gemma-4-26b-a4b-it', structuringScore: 80, solvingScore: 95, instance: google },
-  { name: 'gpt-4o', structuringScore: 75, solvingScore: 98, instance: openai },
+function getRoleConfigId(role: ModelRole): string {
+  const envKey = role === 'structuring' ? 'PORTKEY_CONFIG_STRUCTURING' : 'PORTKEY_CONFIG_SOLVING';
+  const configured = process.env[envKey];
+  if (!isValidKey(configured)) {
+    throw new Error(`${envKey} is not set. Copy the Config ID from Portkey.`);
+  }
+  return configured;
+}
 
-  // バランス・フォールバックモデル
-  { name: 'gemini-3-flash-preview', structuringScore: 90, solvingScore: 80, instance: google },
-  { name: 'gemini-2.5-flash-preview-tts', structuringScore: 85, solvingScore: 75, instance: google },
-  { name: 'gemini-2.5-flash', structuringScore: 80, solvingScore: 70, instance: google },
-  { name: 'gpt-4o-mini', structuringScore: 95, solvingScore: 65, instance: openai },
-];
+function getModelPlaceholder(): string {
+  const configured = process.env.PORTKEY_MODEL_PLACEHOLDER;
+  return isValidKey(configured) ? configured : DEFAULT_MODEL_PLACEHOLDER;
+}
 
 /**
- * 有効なプロバイダーのモデルを抽出し、スコア順に並び替えた配列を返します
+ * 1. @ai-sdk/openai を使い、純粋にベースURLとConfig IDのみを付与してインスタンス化
  */
-function getSortedModels(role: 'structuring' | 'solving') {
-  const scoreKey = role === 'structuring' ? 'structuringScore' : 'solvingScore';
-
-  return ALL_MODELS
-    .filter(m => m.instance !== null)
-    .sort((a, b) => (b[scoreKey] as number) - (a[scoreKey] as number))
-    .map(m => m.instance!(m.name));
+function createPortkeyProvider(configId: string) {
+  assertPortkeyConfigured();
+  return createOpenAI({
+    baseURL: PORTKEY_BASE_URL,
+    apiKey: process.env.PORTKEY_API_KEY!,
+    headers: {
+      'x-portkey-config': configId, // Portkey側はこのIDに紐づくJSONルールを最優先します
+    },
+  });
 }
 
-export const models = {
-  get primary() { return getSortedModels('solving'); },
-  get structuring() { return getSortedModels('structuring'); },
-};
+/**
+ * 2. 役割に応じたLanguageModelを生成
+ */
+export function getModelForRole(role: ModelRole): LanguageModel {
+  const configId = getRoleConfigId(role);
+  const portkey = createPortkeyProvider(configId);
+  
+  // スラッグプレフィックス（portkey/ 等）を削除し、プレースホルダー名のみを渡します。
+  // Vercel AI SDK（LanguageModelV2以上）はこれを正当なOpenAIモデルとして認識し、Gatewayへ送信します。
+  const baseModel = getModelPlaceholder(); 
+
+  return portkey.chat(baseModel);
+}
