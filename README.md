@@ -57,4 +57,4 @@ ANTHROPIC_API_KEY=...
 ```
 
 ### 3. データベースのセットアップ
-`supabase_migration_v2.sql` および各追加 SQL を Supabase SQL Editor で実行してください。
+`supabase_schema.sql`、`supabase_migration_v2.sql` を Supabase SQL Editor で順に実行してください。
