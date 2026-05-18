@@ -14,7 +14,7 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string, stack?: string } | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [resumePrompt, setResumePrompt] = useState<any>(null);
 
@@ -85,7 +85,10 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
       }
     } catch (err: any) {
       console.error('Wizard error:', err);
-      setError(err.message || '通信エラーが発生しました。しばらく待ってから再試行してください。');
+      setError({ 
+        message: err.message || '通信エラーが発生しました。しばらく待ってから再試行してください。',
+        stack: err.stack 
+      });
     } finally {
       setLoading(false);
     }
@@ -161,7 +164,24 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
               animate={{ opacity: 1 }}
               style={{ padding: '1.5rem', background: 'rgba(255, 68, 68, 0.1)', border: '1px solid #ff4444', borderRadius: '12px', textAlign: 'center' }}
             >
-              <p style={{ color: '#ff4444', marginBottom: '1rem' }}>{error}</p>
+              <p style={{ color: '#ff4444', marginBottom: '0.5rem' }}>{error.message}</p>
+              {error.stack && (
+                <pre style={{ 
+                  fontSize: '0.75rem', 
+                  color: '#ff8888', 
+                  textAlign: 'left', 
+                  marginTop: '1rem', 
+                  padding: '1rem', 
+                  background: 'rgba(0,0,0,0.3)', 
+                  borderRadius: '8px',
+                  overflow: 'auto',
+                  maxHeight: '200px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all'
+                }}>
+                  {error.stack}
+                </pre>
+              )}
               <button 
                 onClick={handleRetry}
                 className="btn-primary"
