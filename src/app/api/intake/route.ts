@@ -71,14 +71,43 @@ export async function POST(req: Request) {
 
     if (step.type === 'question') {
       if (user) {
+        let currentSessionId = sessionId;
+
+        if (!sessionId) {
+          const { data: newSession, error: sessionError } = await supabase
+            .from('diagnostic_sessions')
+            .insert({
+              user_id: user.id,
+              answers: [],
+              is_completed: false,
+              context: '診断セッション'
+            })
+            .select('id')
+            .single();
+
+          if (!sessionError && newSession) {
+            currentSessionId = newSession.id;
+          }
+        }
+
         await supabase.from('diagnostic_sessions').upsert({
-          id: sessionId || undefined,
+          id: currentSessionId,
           user_id: user.id,
           answers,
           current_question: step,
           is_completed: false,
           updated_at: new Date().toISOString()
         });
+
+        if (answers.length > 0) {
+          const lastAnswer = answers[answers.length - 1];
+          await supabase.from('answers').insert({
+            session_id: currentSessionId,
+            question: lastAnswer.question,
+            answer: lastAnswer.answer,
+            step_number: answers.length
+          });
+        }
       }
       return NextResponse.json(step);
     }
@@ -146,6 +175,15 @@ export async function POST(req: Request) {
     }
 
     if (user && sessionId) {
+      if (answers.length > 0) {
+        const lastAnswer = answers[answers.length - 1];
+        await supabase.from('answers').insert({
+          session_id: sessionId,
+          question: lastAnswer.question,
+          answer: lastAnswer.answer,
+          step_number: answers.length
+        });
+      }
       await supabase.from('diagnostic_sessions').update({ is_completed: true }).eq('id', sessionId);
     }
 
