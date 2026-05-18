@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET() {
   try {
-    // 最新の20件の課題を取得（アクションも含めて取得）
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json([]);
+    }
+
     const { data: problems, error } = await supabase
       .from('problems')
-      .select(`
-        *,
-        actions (*)
-      `)
+      .select(`*, actions (*)`)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(20);
 

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { structureProblem } from '@/lib/ai/agents/intake';
 import { proposeActions } from '@/lib/ai/agents/solver';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase-server';
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
     const { input } = await req.json();
 
     if (!input) {
@@ -21,6 +24,7 @@ export async function POST(req: NextRequest) {
     const { data: problemData, error: problemError } = await supabase
       .from('problems')
       .insert([{
+        user_id: user?.id,
         context: structuredProblem.context,
         symptoms: structuredProblem.symptoms,
         constraints: structuredProblem.constraints,
@@ -38,6 +42,7 @@ export async function POST(req: NextRequest) {
 
     const dbActions = actions.map(action => ({
       problem_id: problemData.id,
+      user_id: user?.id,
       type: action.type,
       description: action.description,
       cost: action.cost,

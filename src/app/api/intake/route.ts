@@ -1,21 +1,74 @@
 import { NextResponse } from 'next/server';
-import { getNextIntakeStep, structureProblem } from '@/lib/ai/agents/intake';
+import { getNextIntakeStep, structureProblem, UserContext } from '@/lib/ai/agents/intake';
 import { prioritizeProblem } from '@/lib/ai/agents/prioritizer';
 import { proposeActions } from '@/lib/ai/agents/solver';
 import { updateClusters } from '@/lib/ai/agents/clusterer';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase-server';
+
+async function fetchUserContext(userId: string): Promise<UserContext> {
+  const supabase = await createClient();
+  const context: UserContext = {};
+
+  const { data: pastSessions } = await supabase
+    .from('diagnostic_sessions')
+    .select('answers, updated_at')
+    .eq('user_id', userId)
+    .eq('is_completed', true)
+    .order('updated_at', { ascending: false })
+    .limit(5);
+
+  if (pastSessions?.length) {
+    context.pastSessions = pastSessions.map(s => ({
+      answers: s.answers,
+      completedAt: s.updated_at,
+    }));
+  }
+
+  const { data: pastProblems } = await supabase
+    .from('problems')
+    .select('context, symptoms, goal, tags, status')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (pastProblems?.length) {
+    context.pastProblems = pastProblems;
+  }
+
+  const { count: visitCount } = await supabase
+    .from('user_activity')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('activity_type', 'visit');
+
+  const { count: clickCount } = await supabase
+    .from('user_activity')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('activity_type', 'click_action');
+
+  context.activitySummary = {
+    visitCount: visitCount || 0,
+    previousClicks: clickCount || 0,
+  };
+
+  return context;
+}
 
 export async function POST(req: Request) {
   try {
+    const supabase = await createClient();
     const { answers, sessionId } = await req.json();
 
-    // ユーザー情報の取得
     const { data: { user } } = await supabase.auth.getUser();
 
-    // 次のステップを取得
-    const step = await getNextIntakeStep(answers);
+    let userContext: UserContext | undefined;
+    if (user) {
+      userContext = await fetchUserContext(user.id);
+    }
 
-    // まだ質問が続く場合
+    const step = await getNextIntakeStep(answers, userContext);
+
     if (step.type === 'question') {
       if (user) {
         await supabase.from('diagnostic_sessions').upsert({
@@ -30,8 +83,7 @@ export async function POST(req: Request) {
       return NextResponse.json(step);
     }
 
-    // 診断完了：構造化
-    const rawProblems = await structureProblem(answers);
+    const rawProblems = await structureProblem(answers, userContext);
     const problemsData = [];
     
     for (const p of rawProblems) {
@@ -42,7 +94,6 @@ export async function POST(req: Request) {
     const results = [];
 
     for (const pData of problemsData) {
-      // データベースへの保存
       const { data: problem, error: pError } = await supabase
         .from('problems')
         .insert({
@@ -65,29 +116,7 @@ export async function POST(req: Request) {
 
       if (pError) throw pError;
 
-      // ユーザーの過去の行動（訪問・クリック）を取得して提案に反映させる
-      let activitySummary = { visitCount: 0, previousClicks: 0 };
-      if (user) {
-        const { count: visitCount } = await supabase
-          .from('user_activity')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('activity_type', 'visit');
-        
-        const { count: clickCount } = await supabase
-          .from('user_activity')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('activity_type', 'click_action');
-
-        activitySummary = { 
-          visitCount: visitCount || 0, 
-          previousClicks: clickCount || 0 
-        };
-      }
-
-      // 各課題に対するアクションの生成（活動データを考慮）
-      const actions = await proposeActions(problem, activitySummary);
+      const actions = await proposeActions(problem, userContext?.activitySummary || { visitCount: 0, previousClicks: 0 });
 
       const actionsWithId = actions.map(a => ({
         description: a.description,
@@ -100,7 +129,7 @@ export async function POST(req: Request) {
         link: a.link,
         is_recommended: a.isRecommended,
         problem_id: problem.id,
-        user_id: user?.id // アクションにもユーザーIDを紐付け（RLSのため）
+        user_id: user?.id
       }));
 
       const { data: savedActions, error: aError } = await supabase
@@ -116,17 +145,15 @@ export async function POST(req: Request) {
       });
     }
 
-    // セッションの完了処理
     if (user && sessionId) {
       await supabase.from('diagnostic_sessions').update({ is_completed: true }).eq('id', sessionId);
     }
 
-    // 自律的進化：クラスターを非同期で更新（待機せずにレスポンスを返す）
     updateClusters().catch(err => console.error('Auto-clustering error:', err));
 
     return NextResponse.json({
       type: 'result',
-      results // 複数の診断結果を返す
+      results
     });
 
   } catch (error: any) {
