@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import IntakeWizard from '@/components/IntakeWizard';
 import AuthUI from '@/components/Auth';
+import SourcesPanel from '@/components/SourcesPanel';
+import InsightsPanel from '@/components/InsightsPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Target, History, Sparkles, ExternalLink, MessageCircleWarning, ArrowLeft, LogOut, User, CheckCircle2, ChevronRight, MessageSquare, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -203,6 +205,10 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+                {/* ソース管理 & 自動インサイト */}
+                <SourcesPanel />
+                <InsightsPanel />
+
                 <IntakeWizard onResult={handleResult} />
               </div>
             ) : executionResult ? (
