@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Plus, RefreshCw, Search, CheckCircle2, Clock,
-  Link2, Loader2, X, Filter, FolderOpen,
+  Link2, Loader2, X, Filter, FolderOpen, Zap,
 } from 'lucide-react';
 import type { UserSource } from '@/lib/types/sources';
 
@@ -25,11 +25,13 @@ export default function SourcesPanel() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [showDocPicker, setShowDocPicker] = useState(false);
-  const [syncMode, setSyncMode] = useState<SyncMode>('selected');
+  const [syncMode, setSyncMode] = useState<SyncMode>('keyword');
   const [keyword, setKeyword] = useState('');
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [searchLoading, setSearchLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [autoCollecting, setAutoCollecting] = useState(false);
+  const [collectResult, setCollectResult] = useState<string | null>(null);
 
   const fetchGoogleDocs = async (query?: string) => {
     setSearchLoading(true);
@@ -137,22 +139,47 @@ export default function SourcesPanel() {
     }
   };
 
-  const handleBulkSync = async () => {
-    const toSync = syncMode === 'all'
-      ? sources
-      : sources.filter((s) => {
-          const config = s.source_config as { doc_id?: string };
-          return config?.doc_id && selectedDocs.has(config.doc_id);
-        });
-
-    for (const source of toSync) {
-      await handleSync(source.id);
+  const handleAutoCollect = async (mode: 'all' | 'keyword', query?: string) => {
+    setAutoCollecting(true);
+    setCollectResult(null);
+    setErrorMessage(null);
+    try {
+      const res = await fetch('/api/sources/auto-collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, query }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCollectResult(data.message);
+        fetchSources();
+      } else {
+        setErrorMessage(data.error || '収集に失敗しました');
+      }
+    } catch (err) {
+      console.error('Auto-collect error:', err);
+      setErrorMessage('ネットワークエラーが発生しました');
+    } finally {
+      setAutoCollecting(false);
     }
   };
 
-  const handleKeywordSearch = () => {
-    if (keyword.trim()) {
-      fetchGoogleDocs(keyword);
+  const handleBulkSync = async () => {
+    if (syncMode === 'all') {
+      await handleAutoCollect('all');
+      return;
+    }
+    if (syncMode === 'keyword') {
+      if (!keyword.trim()) return;
+      await handleAutoCollect('keyword', keyword);
+      return;
+    }
+    const toSync = sources.filter((s) => {
+      const config = s.source_config as { doc_id?: string };
+      return config?.doc_id && selectedDocs.has(config.doc_id);
+    });
+    for (const source of toSync) {
+      await handleSync(source.id);
     }
   };
 
@@ -229,10 +256,10 @@ export default function SourcesPanel() {
       </div>
 
       {/* 読み込みモード選択 */}
-      {sources.length > 0 && (
+      {isConnected && (
         <div style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            {(['selected', 'keyword', 'all'] as const).map((mode) => (
+            {(['keyword', 'all', 'selected'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setSyncMode(mode)}
@@ -246,9 +273,9 @@ export default function SourcesPanel() {
                   cursor: 'pointer',
                 }}
               >
-                {mode === 'selected' && '個別選択'}
                 {mode === 'keyword' && '目的指定'}
                 {mode === 'all' && '全件読み込み'}
+                {mode === 'selected' && '個別選択'}
               </button>
             ))}
           </div>
@@ -259,8 +286,8 @@ export default function SourcesPanel() {
                 type="text"
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="キーワードで絞り込み..."
-                onKeyDown={(e) => e.key === 'Enter' && handleKeywordSearch()}
+                placeholder="キーワードでDrive内を検索し自動収集..."
+                onKeyDown={(e) => e.key === 'Enter' && handleBulkSync()}
                 style={{
                   flex: 1,
                   padding: '0.4rem 0.7rem',
@@ -271,22 +298,54 @@ export default function SourcesPanel() {
                   fontSize: '0.85rem',
                 }}
               />
-              <button onClick={handleKeywordSearch} style={{
-                padding: '0.4rem 0.6rem',
-                background: 'rgba(99, 102, 241, 0.2)',
-                border: '1px solid var(--accent-color)',
-                borderRadius: '6px',
-                color: 'white',
-                cursor: 'pointer',
-              }}>
-                <Search size={14} />
+              <button
+                onClick={handleBulkSync}
+                disabled={autoCollecting || !keyword.trim()}
+                style={{
+                  padding: '0.4rem 0.6rem',
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  border: '1px solid var(--accent-color)',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: autoCollecting ? 'wait' : 'pointer',
+                  opacity: autoCollecting || !keyword.trim() ? 0.5 : 1,
+                }}
+              >
+                {autoCollecting ? <Loader2 className="animate-spin" size={14} /> : <Search size={14} />}
               </button>
             </div>
           )}
 
           {syncMode === 'all' && (
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0' }}>
-              全ドキュメントを読み込みます（時間がかかる場合があります）
+            <>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0.5rem' }}>
+                Google Drive上の全ドキュメントを自動で収集・分析します（時間がかかる場合があります）
+              </p>
+              <button
+                onClick={handleBulkSync}
+                disabled={autoCollecting}
+                className="btn-primary"
+                style={{ width: '100%', padding: '0.6rem', fontSize: '0.85rem' }}
+              >
+                {autoCollecting ? (
+                  <Loader2 className="animate-spin" size={14} style={{ marginRight: '0.3rem' }} />
+                ) : (
+                  <Zap size={14} style={{ marginRight: '0.3rem' }} />
+                )}
+                {autoCollecting ? '収集中...' : '全件自動収集を開始'}
+              </button>
+            </>
+          )}
+
+          {collectResult && (
+            <p style={{ fontSize: '0.8rem', color: 'var(--accent-color)', margin: '0.5rem 0 0', padding: '0.5rem', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '6px' }}>
+              {collectResult}
+            </p>
+          )}
+
+          {errorMessage && !showDocPicker && (
+            <p style={{ fontSize: '0.8rem', color: '#f87171', margin: '0.5rem 0 0' }}>
+              {errorMessage}
             </p>
           )}
         </div>
@@ -358,7 +417,7 @@ export default function SourcesPanel() {
 
         {sources.length === 0 && isConnected && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>
-            ドキュメントを追加して、自動で課題を検出しましょう
+            上の「目的指定」や「全件読み込み」でドキュメントを自動収集できます
           </p>
         )}
 
@@ -369,20 +428,20 @@ export default function SourcesPanel() {
         )}
       </div>
 
-      {/* 一括同期ボタン */}
-      {sources.length > 0 && (
+      {/* 個別選択モードの一括同期ボタン */}
+      {sources.length > 0 && syncMode === 'selected' && (
         <button
           onClick={handleBulkSync}
-          disabled={syncing !== null}
+          disabled={syncing !== null || selectedDocs.size === 0}
           className="btn-primary"
-          style={{ width: '100%', marginTop: '0.8rem', padding: '0.6rem', fontSize: '0.85rem' }}
+          style={{ width: '100%', marginTop: '0.8rem', padding: '0.6rem', fontSize: '0.85rem', opacity: selectedDocs.size === 0 ? 0.5 : 1 }}
         >
           {syncing ? (
             <Loader2 className="animate-spin" size={14} style={{ marginRight: '0.3rem' }} />
           ) : (
             <RefreshCw size={14} style={{ marginRight: '0.3rem' }} />
           )}
-          {syncMode === 'all' ? '全件読み込み開始' : syncMode === 'keyword' ? 'キーワード一致を読み込み' : '選択したドキュメントを読み込み'}
+          選択したドキュメントを読み込み ({selectedDocs.size}件)
         </button>
       )}
 
