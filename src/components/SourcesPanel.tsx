@@ -30,37 +30,6 @@ export default function SourcesPanel() {
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [searchLoading, setSearchLoading] = useState(false);
 
-  const fetchSources = async () => {
-    try {
-      const res = await fetch('/api/sources');
-      if (res.ok) {
-        const data = await res.json();
-        setSources(data);
-        setIsConnected(data.length > 0 || false);
-      }
-    } catch (err) {
-      console.error('Failed to fetch sources:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSources();
-  }, []);
-
-  const handleConnectGoogle = async () => {
-    try {
-      const res = await fetch('/api/sources/google/auth');
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    } catch (err) {
-      console.error('Google auth error:', err);
-    }
-  };
-
   const fetchGoogleDocs = async (query?: string) => {
     setSearchLoading(true);
     try {
@@ -80,6 +49,48 @@ export default function SourcesPanel() {
       console.error('Failed to fetch docs:', err);
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const fetchSources = async () => {
+    try {
+      const res = await fetch('/api/sources');
+      if (res.ok) {
+        const data = await res.json();
+        setSources(data.sources || []);
+        setIsConnected(data.googleConnected || false);
+      }
+    } catch (err) {
+      console.error('Failed to fetch sources:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSources();
+
+    // OAuth完了後に自動でドキュメントピッカーを表示
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google_connected') === 'true') {
+      setIsConnected(true);
+      setShowDocPicker(true);
+      fetchGoogleDocs();
+      const url = new URL(window.location.href);
+      url.searchParams.delete('google_connected');
+      window.history.replaceState({}, '', url.pathname);
+    }
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const res = await fetch('/api/sources/google/auth');
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error('Google auth error:', err);
     }
   };
 

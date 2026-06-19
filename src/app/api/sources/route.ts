@@ -18,7 +18,18 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json(sources || []);
+    // Google OAuthトークンの存在を確認
+    const { data: tokenData } = await supabase
+      .from('user_oauth_tokens')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('provider', 'google')
+      .single();
+
+    return NextResponse.json({
+      sources: sources || [],
+      googleConnected: !!tokenData,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Sources fetch error:', error);
