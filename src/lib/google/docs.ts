@@ -113,7 +113,7 @@ export async function listDocs(
 ): Promise<Array<{ id: string; name: string; modifiedTime: string }>> {
   const drive = google.drive({ version: 'v3', auth });
 
-  let q = "mimeType='application/vnd.google-apps.document'";
+  let q = "mimeType='application/vnd.google-apps.document' and trashed = false";
   if (query) {
     q += ` and fullText contains '${query.replace(/'/g, "\\'")}'`;
   }

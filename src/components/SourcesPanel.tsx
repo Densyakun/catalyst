@@ -29,9 +29,11 @@ export default function SourcesPanel() {
   const [keyword, setKeyword] = useState('');
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [searchLoading, setSearchLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchGoogleDocs = async (query?: string) => {
     setSearchLoading(true);
+    setErrorMessage(null);
     try {
       const url = query ? `/api/sources/docs?query=${encodeURIComponent(query)}` : '/api/sources/docs';
       const res = await fetch(url);
@@ -44,9 +46,11 @@ export default function SourcesPanel() {
         if (err.error?.includes('not connected')) {
           setIsConnected(false);
         }
+        setErrorMessage(err.error || 'ドキュメントの取得に失敗しました');
       }
     } catch (err) {
       console.error('Failed to fetch docs:', err);
+      setErrorMessage('ネットワークエラーが発生しました');
     } finally {
       setSearchLoading(false);
     }
@@ -475,9 +479,14 @@ export default function SourcesPanel() {
                     )}
                   </div>
                 ))}
-                {googleDocs.length === 0 && (
+                {googleDocs.length === 0 && !errorMessage && (
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>
                     ドキュメントが見つかりません
+                  </p>
+                )}
+                {errorMessage && (
+                  <p style={{ fontSize: '0.8rem', color: '#f87171', textAlign: 'center', padding: '1rem' }}>
+                    {errorMessage}
                   </p>
                 )}
               </div>
