@@ -53,17 +53,19 @@ export default function InsightsPanel() {
   const getStatusBadge = (insight: AutoInsight) => {
     if (insight.auto_proceed && insight.status === 'in_progress') {
       return (
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.2rem',
-          padding: '0.15rem 0.4rem',
-          background: 'rgba(34, 197, 94, 0.15)',
-          border: '1px solid rgba(34, 197, 94, 0.3)',
-          borderRadius: '4px',
-          fontSize: '0.7rem',
-          color: '#22c55e',
-        }}>
+        <span
+          title="低コスト・低リスクと判断し自動で進行中"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.2rem',
+            padding: '0.15rem 0.4rem',
+            background: 'rgba(34, 197, 94, 0.15)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '4px',
+            fontSize: '0.7rem',
+            color: '#22c55e',
+          }}>
           <Zap size={10} /> 自動実行中
         </span>
       );
@@ -90,8 +92,44 @@ export default function InsightsPanel() {
     );
   };
 
+  const parseUrgency = (insight: AutoInsight): 'low' | 'medium' | 'high' => {
+    const match = insight.content.match(/緊急度:\s*(low|medium|high)/);
+    return (match?.[1] as 'low' | 'medium' | 'high') || 'low';
+  };
+
+  const getUrgencyBadge = (insight: AutoInsight) => {
+    const urgency = parseUrgency(insight);
+    const urgencyMap = {
+      high: { label: '高', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.3)' },
+      medium: { label: '中', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', border: 'rgba(245, 158, 11, 0.3)' },
+      low: { label: '低', color: '#6b7280', bg: 'rgba(107, 114, 128, 0.15)', border: 'rgba(107, 114, 128, 0.3)' },
+    };
+    const u = urgencyMap[urgency];
+    return (
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.15rem',
+        padding: '0.1rem 0.35rem',
+        background: u.bg,
+        border: `1px solid ${u.border}`,
+        borderRadius: '4px',
+        fontSize: '0.65rem',
+        color: u.color,
+        fontWeight: 600,
+      }}>
+        {urgency === 'high' && <AlertTriangle size={9} />}
+        {u.label}
+      </span>
+    );
+  };
+
   const getUrgencyIcon = (insight: AutoInsight) => {
-    if (insight.estimated_cost && insight.estimated_cost.money > 0) {
+    const urgency = parseUrgency(insight);
+    if (urgency === 'high') {
+      return <AlertTriangle size={14} style={{ color: '#ef4444' }} />;
+    }
+    if (urgency === 'medium') {
       return <AlertTriangle size={14} style={{ color: '#f59e0b' }} />;
     }
     return <Lightbulb size={14} style={{ color: 'var(--accent-color)' }} />;
@@ -146,6 +184,7 @@ export default function InsightsPanel() {
             actionLoading={actionLoading === insight.id}
             getStatusBadge={getStatusBadge}
             getUrgencyIcon={getUrgencyIcon}
+            getUrgencyBadge={getUrgencyBadge}
           />
         ))}
       </div>
@@ -187,6 +226,7 @@ function InsightCard({
   actionLoading,
   getStatusBadge,
   getUrgencyIcon,
+  getUrgencyBadge,
 }: {
   insight: AutoInsight;
   expanded: boolean;
@@ -195,6 +235,7 @@ function InsightCard({
   actionLoading: boolean;
   getStatusBadge: (i: AutoInsight) => React.ReactNode;
   getUrgencyIcon: (i: AutoInsight) => React.ReactNode;
+  getUrgencyBadge: (i: AutoInsight) => React.ReactNode;
 }) {
   return (
     <motion.div
@@ -222,7 +263,20 @@ function InsightCard({
             {insight.title}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+          {insight.insight_type === 'detected_problem' && getUrgencyBadge(insight)}
+          {insight.estimated_cost && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.15rem',
+              fontSize: '0.65rem',
+              color: 'var(--text-secondary)',
+            }}>
+              <Clock size={9} />
+              {insight.estimated_cost.time}
+            </span>
+          )}
           {getStatusBadge(insight)}
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
