@@ -45,10 +45,14 @@ export default function SourcesPanel() {
         setIsConnected(true);
       } else {
         const err = await res.json();
-        if (err.error?.includes('not connected')) {
+        if (err.error === 're_auth_required') {
           setIsConnected(false);
+          setErrorMessage('Google認証の有効期限が切れました。再連携してください。');
+        } else if (err.error?.includes('not connected')) {
+          setIsConnected(false);
+        } else {
+          setErrorMessage(err.error || 'ドキュメントの取得に失敗しました');
         }
-        setErrorMessage(err.error || 'ドキュメントの取得に失敗しました');
       }
     } catch (err) {
       console.error('Failed to fetch docs:', err);
@@ -153,6 +157,9 @@ export default function SourcesPanel() {
       if (res.ok) {
         setCollectResult(data.message);
         fetchSources();
+      } else if (data.error === 're_auth_required') {
+        setIsConnected(false);
+        setErrorMessage('Google認証の有効期限が切れました。再連携してください。');
       } else {
         setErrorMessage(data.error || '収集に失敗しました');
       }

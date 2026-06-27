@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { createAuthenticatedClient } from '@/lib/google/oauth';
+import { getAuthClientForUser } from '@/lib/google/oauth';
 import { fetchDocContent, writeDocContent } from '@/lib/google/docs';
 import { extractIntents, generateMemoRewrite, estimateInsightCost } from '@/lib/ai/agents/proactive';
 import { createHash } from 'crypto';
@@ -30,25 +30,14 @@ export async function POST(
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // OAuthトークンを取得
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('user_oauth_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('provider', 'google')
-      .single();
-
-    if (tokenError || !tokenData) {
-      return NextResponse.json(
-        { error: 'Google account not connected' },
-        { status: 400 },
-      );
+    const authResult = await getAuthClientForUser(supabase, user.id);
+    if (authResult.error === 'not_connected') {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
-
-    const auth = createAuthenticatedClient(
-      tokenData.access_token,
-      tokenData.refresh_token,
-    );
+    if (authResult.error === 're_auth_required') {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
+    const auth = authResult.auth;
 
     const config = source.source_config as { doc_id: string };
     const { title, content } = await fetchDocContent(auth, config.doc_id);
@@ -199,25 +188,14 @@ export async function PUT(
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // OAuthトークンを取得
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('user_oauth_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('provider', 'google')
-      .single();
-
-    if (tokenError || !tokenData) {
-      return NextResponse.json(
-        { error: 'Google account not connected' },
-        { status: 400 },
-      );
+    const authResult = await getAuthClientForUser(supabase, user.id);
+    if (authResult.error === 'not_connected') {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
-
-    const auth = createAuthenticatedClient(
-      tokenData.access_token,
-      tokenData.refresh_token,
-    );
+    if (authResult.error === 're_auth_required') {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
+    const auth = authResult.auth;
 
     const config = source.source_config as { doc_id: string };
     await writeDocContent(auth, config.doc_id, new_content);

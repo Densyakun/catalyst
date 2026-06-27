@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { createAuthenticatedClient } from '@/lib/google/oauth';
+import { getAuthClientForUser } from '@/lib/google/oauth';
 import { listDocs, fetchDocContent } from '@/lib/google/docs';
 import { extractIntents, estimateInsightCost } from '@/lib/ai/agents/proactive';
 import { createHash } from 'crypto';
@@ -24,25 +24,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { mode, query } = body as { mode: 'all' | 'keyword'; query?: string };
 
-    // OAuthトークンを取得
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('user_oauth_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('provider', 'google')
-      .single();
-
-    if (tokenError || !tokenData) {
-      return NextResponse.json(
-        { error: 'Google account not connected' },
-        { status: 400 },
-      );
+    const authResult = await getAuthClientForUser(supabase, user.id);
+    if (authResult.error === 'not_connected') {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
-
-    const auth = createAuthenticatedClient(
-      tokenData.access_token,
-      tokenData.refresh_token,
-    );
+    if (authResult.error === 're_auth_required') {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
+    const auth = authResult.auth;
 
     // Google Driveからドキュメントを検索
     const docs = await listDocs(auth, mode === 'keyword' ? query : undefined);

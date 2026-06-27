@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { createAuthenticatedClient } from '@/lib/google/oauth';
+import { getAuthClientForUser } from '@/lib/google/oauth';
 import { listDocs } from '@/lib/google/docs';
 
 /**
@@ -16,25 +16,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // OAuthトークンを取得
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('user_oauth_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('provider', 'google')
-      .single();
-
-    if (tokenError || !tokenData) {
+    const authResult = await getAuthClientForUser(supabase, user.id);
+    if (authResult.error === 'not_connected') {
       return NextResponse.json(
         { error: 'Google account not connected. Please connect first.' },
         { status: 400 },
       );
     }
-
-    const auth = createAuthenticatedClient(
-      tokenData.access_token,
-      tokenData.refresh_token,
-    );
+    if (authResult.error === 're_auth_required') {
+      return NextResponse.json(
+        { error: 're_auth_required' },
+        { status: 401 },
+      );
+    }
+    const auth = authResult.auth;
 
     const query = req.nextUrl.searchParams.get('query') || undefined;
     const docs = await listDocs(auth, query);
