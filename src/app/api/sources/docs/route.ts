@@ -59,6 +59,9 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('List docs error:', error);
+    if (message.includes('invalid_grant') || message.includes('Token has been expired or revoked')) {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

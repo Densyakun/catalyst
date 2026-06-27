@@ -135,6 +135,12 @@ export default function SourcesPanel() {
       });
       if (res.ok) {
         fetchSources();
+      } else {
+        const data = await res.json();
+        if (data.error === 're_auth_required') {
+          setIsConnected(false);
+          setErrorMessage('Google認証の有効期限が切れました。再連携してください。');
+        }
       }
     } catch (err) {
       console.error('Sync error:', err);

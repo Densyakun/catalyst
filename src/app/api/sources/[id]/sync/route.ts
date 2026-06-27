@@ -154,6 +154,9 @@ export async function POST(
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Sync error:', error);
+    if (message.includes('invalid_grant') || message.includes('Token has been expired or revoked')) {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -212,6 +215,9 @@ export async function PUT(
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Write doc error:', error);
+    if (message.includes('invalid_grant') || message.includes('Token has been expired or revoked')) {
+      return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
