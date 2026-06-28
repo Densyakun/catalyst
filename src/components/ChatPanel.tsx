@@ -1,0 +1,356 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  MessageSquare, Send, Loader2, Plus, ChevronDown,
+  AlertCircle, Package, Lightbulb,
+} from 'lucide-react';
+import type { Conversation, ChatMessage } from '@/lib/types/engine';
+
+export default function ChatPanel() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [extractedSummary, setExtractedSummary] = useState<{
+    problems: string[];
+    resources: string[];
+    info: string[];
+  } | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations');
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const loadConversation = (conv: Conversation) => {
+    setActiveConvId(conv.id);
+    setMessages(conv.messages || []);
+    setShowHistory(false);
+    setExtractedSummary(null);
+  };
+
+  const startNewConversation = () => {
+    setActiveConvId(null);
+    setMessages([]);
+    setExtractedSummary(null);
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || sending) return;
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setSending(true);
+
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: activeConvId,
+          message: userMsg.content,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setActiveConvId(data.conversation_id);
+        setMessages((prev) => [...prev, data.reply]);
+        setExtractedSummary(data.extracted_items);
+        fetchConversations();
+      }
+    } catch (err) {
+      console.error('Send message error:', err);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const extractedCount = extractedSummary
+    ? extractedSummary.problems.length + extractedSummary.resources.length + extractedSummary.info.length
+    : 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-panel"
+      style={{ padding: '1.5rem', marginBottom: '1.5rem' }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+          <MessageSquare size={20} className="text-accent" />
+          情報収集チャット
+        </h3>
+        <div style={{ display: 'flex', gap: '0.3rem' }}>
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '6px',
+              padding: '0.3rem 0.5rem',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.2rem',
+            }}
+          >
+            <ChevronDown size={12} style={{ transform: showHistory ? 'rotate(180deg)' : 'none' }} />
+            履歴
+          </button>
+          <button
+            onClick={startNewConversation}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '6px',
+              padding: '0.3rem 0.5rem',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.2rem',
+            }}
+          >
+            <Plus size={12} />
+            新規
+          </button>
+        </div>
+      </div>
+
+      {/* Conversation History */}
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{ overflow: 'hidden', marginBottom: '0.5rem' }}
+          >
+            <div style={{
+              maxHeight: '150px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.3rem',
+            }}>
+              {conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => loadConversation(conv)}
+                  style={{
+                    background: conv.id === activeConvId ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.03)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: '6px',
+                    padding: '0.4rem 0.6rem',
+                    color: 'white',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  {conv.title || '無題の会話'}
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>
+                    {new Date(conv.updated_at).toLocaleDateString('ja-JP')}
+                  </span>
+                </button>
+              ))}
+              {conversations.length === 0 && (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '0.5rem' }}>
+                  会話履歴はありません
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Messages */}
+      <div style={{
+        maxHeight: '300px',
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem',
+        marginBottom: '0.8rem',
+        padding: '0.5rem',
+        background: 'rgba(0,0,0,0.2)',
+        borderRadius: '8px',
+        minHeight: '100px',
+      }}>
+        {messages.length === 0 && (
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem 0' }}>
+            何でも話してください。課題やリソースを自動で検出します。
+          </p>
+        )}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            style={{
+              display: 'flex',
+              justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+            }}
+          >
+            <div style={{
+              maxWidth: '80%',
+              padding: '0.5rem 0.7rem',
+              borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+              background: msg.role === 'user' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255,255,255,0.05)',
+              fontSize: '0.85rem',
+              whiteSpace: 'pre-wrap',
+            }}>
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        {sending && (
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <div style={{
+              padding: '0.5rem 0.7rem',
+              borderRadius: '12px 12px 12px 2px',
+              background: 'rgba(255,255,255,0.05)',
+            }}>
+              <Loader2 className="animate-spin" size={14} />
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Extracted Items Notification */}
+      {extractedSummary && extractedCount > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: '0.5rem 0.7rem',
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.2)',
+            borderRadius: '6px',
+            marginBottom: '0.5rem',
+            fontSize: '0.75rem',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.4rem',
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ color: 'var(--text-secondary)' }}>検出:</span>
+          {extractedSummary.problems.map((p, i) => (
+            <span key={`p-${i}`} style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.15rem',
+              padding: '0.1rem 0.3rem',
+              background: 'rgba(239, 68, 68, 0.15)',
+              borderRadius: '3px',
+              color: '#ef4444',
+            }}>
+              <AlertCircle size={10} /> {p.description}
+            </span>
+          ))}
+          {extractedSummary.resources.map((r, i) => (
+            <span key={`r-${i}`} style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.15rem',
+              padding: '0.1rem 0.3rem',
+              background: 'rgba(59, 130, 246, 0.15)',
+              borderRadius: '3px',
+              color: '#3b82f6',
+            }}>
+              <Package size={10} /> {r.name}
+            </span>
+          ))}
+          {extractedSummary.info.map((info, i) => (
+            <span key={`i-${i}`} style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.15rem',
+              padding: '0.1rem 0.3rem',
+              background: 'rgba(245, 158, 11, 0.15)',
+              borderRadius: '3px',
+              color: '#f59e0b',
+            }}>
+              <Lightbulb size={10} /> {info}
+            </span>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Input */}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="困っていること、やりたいこと、持っているリソースなど..."
+          disabled={sending}
+          style={{
+            flex: 1,
+            padding: '0.6rem 0.8rem',
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '0.85rem',
+            outline: 'none',
+          }}
+        />
+        <button
+          onClick={sendMessage}
+          disabled={!input.trim() || sending}
+          className="btn-primary"
+          style={{
+            padding: '0.6rem 0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            fontSize: '0.85rem',
+          }}
+        >
+          {sending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
+        </button>
+      </div>
+    </motion.div>
+  );
+}

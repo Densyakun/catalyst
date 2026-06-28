@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Lightbulb, Play, Pause, FileEdit, ChevronDown, ChevronUp,
-  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye,
+  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye, FolderKanban,
 } from 'lucide-react';
 import type { AutoInsight, DiffData, DiffChange } from '@/lib/types/sources';
 
@@ -13,6 +13,7 @@ export default function InsightsPanel() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [projectLoading, setProjectLoading] = useState<string | null>(null);
 
   const fetchInsights = async () => {
     try {
@@ -31,6 +32,29 @@ export default function InsightsPanel() {
   useEffect(() => {
     fetchInsights();
   }, []);
+
+  const handleDecompose = async (insight: AutoInsight) => {
+    setProjectLoading(insight.id);
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          insight_id: insight.id,
+          title: insight.title,
+          description: insight.content,
+          is_social: false,
+        }),
+      });
+      if (res.ok) {
+        fetchInsights();
+      }
+    } catch (err) {
+      console.error('Decompose error:', err);
+    } finally {
+      setProjectLoading(null);
+    }
+  };
 
   const handleAction = async (insightId: string, action: 'proceed' | 'hold') => {
     setActionLoading(insightId);
@@ -182,6 +206,8 @@ export default function InsightsPanel() {
             onToggle={() => setExpandedId(expandedId === insight.id ? null : insight.id)}
             onAction={handleAction}
             actionLoading={actionLoading === insight.id}
+            onDecompose={handleDecompose}
+            projectLoading={projectLoading === insight.id}
             getStatusBadge={getStatusBadge}
             getUrgencyIcon={getUrgencyIcon}
             getUrgencyBadge={getUrgencyBadge}
@@ -224,6 +250,8 @@ function InsightCard({
   onToggle,
   onAction,
   actionLoading,
+  onDecompose,
+  projectLoading,
   getStatusBadge,
   getUrgencyIcon,
   getUrgencyBadge,
@@ -233,6 +261,8 @@ function InsightCard({
   onToggle: () => void;
   onAction: (id: string, action: 'proceed' | 'hold') => void;
   actionLoading: boolean;
+  onDecompose: (insight: AutoInsight) => void;
+  projectLoading: boolean;
   getStatusBadge: (i: AutoInsight) => React.ReactNode;
   getUrgencyIcon: (i: AutoInsight) => React.ReactNode;
   getUrgencyBadge: (i: AutoInsight) => React.ReactNode;
@@ -309,6 +339,36 @@ function InsightCard({
               {/* メモ書き換えのdiff表示 */}
               {insight.insight_type === 'memo_rewrite' && insight.diff_data && (
                 <DiffView diffData={insight.diff_data as DiffData} />
+              )}
+
+              {/* プロジェクト化ボタン */}
+              {insight.status === 'pending' && insight.estimated_cost && insight.estimated_cost.money >= 50 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDecompose(insight);
+                  }}
+                  disabled={projectLoading}
+                  style={{
+                    width: '100%',
+                    padding: '0.4rem',
+                    fontSize: '0.75rem',
+                    background: 'rgba(139, 92, 246, 0.1)',
+                    border: '1px solid rgba(139, 92, 246, 0.3)',
+                    borderRadius: '6px',
+                    color: '#8b5cf6',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.3rem',
+                    marginTop: '0.3rem',
+                    marginBottom: '0.3rem',
+                  }}
+                >
+                  {projectLoading ? <Loader2 className="animate-spin" size={12} /> : <FolderKanban size={12} />}
+                  プロジェクト化（タスク分割）
+                </button>
               )}
 
               {/* アクションボタン */}

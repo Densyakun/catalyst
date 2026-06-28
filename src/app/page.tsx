@@ -5,6 +5,9 @@ import IntakeWizard from '@/components/IntakeWizard';
 import AuthUI from '@/components/Auth';
 import SourcesPanel from '@/components/SourcesPanel';
 import InsightsPanel from '@/components/InsightsPanel';
+import ChatPanel from '@/components/ChatPanel';
+import ResourcesPanel from '@/components/ResourcesPanel';
+import ProjectsPanel from '@/components/ProjectsPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Target, History, Sparkles, ExternalLink, MessageCircleWarning, ArrowLeft, LogOut, User, CheckCircle2, ChevronRight, MessageSquare, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -205,9 +208,18 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+                {/* 情報収集チャット */}
+                <ChatPanel />
+
                 {/* ソース管理 & 自動インサイト */}
                 <SourcesPanel />
                 <InsightsPanel />
+
+                {/* プロジェクト管理 */}
+                <ProjectsPanel />
+
+                {/* リソース管理 */}
+                <ResourcesPanel />
 
                 <IntakeWizard onResult={handleResult} />
               </div>
