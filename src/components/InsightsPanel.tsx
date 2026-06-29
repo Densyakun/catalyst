@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Lightbulb, Play, Pause, FileEdit, ChevronDown, ChevronUp,
-  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye, FolderKanban,
+  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye, FolderKanban, Trash2,
 } from 'lucide-react';
 import type { AutoInsight, DiffData, DiffChange } from '@/lib/types/sources';
 
@@ -14,6 +14,7 @@ export default function InsightsPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [projectLoading, setProjectLoading] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
 
   const fetchInsights = async () => {
     try {
@@ -53,6 +54,24 @@ export default function InsightsPanel() {
       console.error('Decompose error:', err);
     } finally {
       setProjectLoading(null);
+    }
+  };
+
+  const handleDelete = async (insightId: string) => {
+    setDeleteLoading(insightId);
+    try {
+      const res = await fetch('/api/insights', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: insightId }),
+      });
+      if (res.ok) {
+        fetchInsights();
+      }
+    } catch (err) {
+      console.error('Insight delete error:', err);
+    } finally {
+      setDeleteLoading(null);
     }
   };
 
@@ -208,6 +227,8 @@ export default function InsightsPanel() {
             actionLoading={actionLoading === insight.id}
             onDecompose={handleDecompose}
             projectLoading={projectLoading === insight.id}
+            onDelete={handleDelete}
+            deleteLoading={deleteLoading === insight.id}
             getStatusBadge={getStatusBadge}
             getUrgencyIcon={getUrgencyIcon}
             getUrgencyBadge={getUrgencyBadge}
@@ -252,6 +273,8 @@ function InsightCard({
   actionLoading,
   onDecompose,
   projectLoading,
+  onDelete,
+  deleteLoading,
   getStatusBadge,
   getUrgencyIcon,
   getUrgencyBadge,
@@ -263,6 +286,8 @@ function InsightCard({
   actionLoading: boolean;
   onDecompose: (insight: AutoInsight) => void;
   projectLoading: boolean;
+  onDelete: (id: string) => void;
+  deleteLoading: boolean;
   getStatusBadge: (i: AutoInsight) => React.ReactNode;
   getUrgencyIcon: (i: AutoInsight) => React.ReactNode;
   getUrgencyBadge: (i: AutoInsight) => React.ReactNode;
@@ -406,6 +431,31 @@ function InsightCard({
                   </button>
                 </div>
               )}
+
+              {/* 削除ボタン */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(insight.id); }}
+                disabled={deleteLoading}
+                style={{
+                  width: '100%',
+                  padding: '0.35rem',
+                  fontSize: '0.7rem',
+                  background: 'rgba(239, 68, 68, 0.05)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  borderRadius: '6px',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.2rem',
+                  marginTop: '0.5rem',
+                  opacity: deleteLoading ? 0.5 : 1,
+                }}
+              >
+                {deleteLoading ? <Loader2 className="animate-spin" size={10} /> : <Trash2 size={10} />}
+                削除
+              </button>
 
               {insight.status === 'on_hold' && (
                 <button
