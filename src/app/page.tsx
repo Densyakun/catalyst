@@ -133,7 +133,7 @@ export default function Home() {
   const username = isAnonymous ? '匿名ユーザー' : (session.user.user_metadata.full_name || session.user.email?.split('@')[0]);
 
   return (
-    <main className="container" style={{ paddingBottom: '5rem' }}>
+    <main className="container" style={{ paddingBottom: '1rem' }}>
       {isAnonymous && (
         <div style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid var(--accent-color)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem' }}>
@@ -147,82 +147,66 @@ export default function Home() {
         </div>
       )}
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', marginTop: '2rem' }}>
-        <div>
-          <h1 className="text-gradient" style={{ fontSize: '2.5rem', marginBottom: '0.2rem' }}>Catalyst</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>意思決定の後悔を減らすAI</p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.8rem' }}>
+          <h1 className="text-gradient" style={{ fontSize: '1.8rem', margin: 0 }}>Catalyst</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: 0 }}>課題解決AI</p>
         </div>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '0.5rem 1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <User size={18} className="text-accent" />
-            <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{username}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.3rem 0.8rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <User size={14} className="text-accent" />
+            <span style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>{username}</span>
           </div>
-          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem' }}>
-            <LogOut size={16} /> ログアウト
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem' }}>
+            <LogOut size={14} /> ログアウト
           </button>
         </div>
       </header>
 
       <div className="main-grid" style={{ 
         display: 'grid', 
-        gridTemplateColumns: (result || executionResult) ? '1fr' : 'repeat(auto-fit, minmax(350px, 1fr))', 
-        gap: '2rem', 
-        maxWidth: '1100px', 
+        gridTemplateColumns: (result || executionResult) ? '1fr' : '1fr 1fr 1fr', 
+        gap: '0.8rem', 
+        maxWidth: '1400px', 
         margin: '0 auto',
-        alignItems: 'start'
+        alignItems: 'start',
+        minHeight: 0,
       }}>
         <div style={{ position: 'relative' }}>
           <AnimatePresence mode="wait">
             {!result ? (
-              <div key="intake-section">
+              <>
                 {clusters.length > 0 && (
-                  <div style={{ marginBottom: '2rem' }}>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>共有されている課題</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+                  <div style={{ marginBottom: '0.8rem' }}>
+                    <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>共有されている課題</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {clusters.map(c => (
-                        <div key={c.id} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                          <div>
-                            <h4 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--accent-color)' }}>{c.title}</h4>
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{c.description}</p>
-                          </div>
-                          
+                        <div key={c.id} className="glass-panel" style={{ padding: '0.8rem' }}>
+                          <h4 style={{ fontSize: '0.85rem', marginBottom: '0.3rem', color: 'var(--accent-color)' }}>{c.title}</h4>
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{c.description}</p>
                           {c.dynamic_ui && (
-                            <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)' }}>
-                              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.8rem', fontStyle: 'italic' }}>
-                                ✨ AIによる協力提案: {c.dynamic_ui.description}
-                              </p>
-                              <button 
-                                className="btn-primary" 
-                                style={{ width: '100%', padding: '0.6rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                                onClick={() => alert(`${c.dynamic_ui.actionLabel} 機能は現在AIが構築中です...`)}
-                              >
-                                {c.dynamic_ui.type === 'data_gathering' && <Zap size={14} />}
-                                {c.dynamic_ui.type === 'petition' && <CheckCircle2 size={14} />}
-                                {c.dynamic_ui.actionLabel}
-                              </button>
-                            </div>
+                            <button 
+                              className="btn-primary" 
+                              style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                              onClick={() => alert(`${c.dynamic_ui.actionLabel} 機能は現在AIが構築中です...`)}
+                            >
+                              {c.dynamic_ui.type === 'data_gathering' && <Zap size={12} />}
+                              {c.dynamic_ui.type === 'petition' && <CheckCircle2 size={12} />}
+                              {c.dynamic_ui.actionLabel}
+                            </button>
                           )}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                {/* 情報収集チャット */}
+                {/* 左列: チャット + リソース */}
                 <ChatPanel />
-
-                {/* ソース管理 & 自動インサイト */}
-                <SourcesPanel />
-                <InsightsPanel />
-
-                {/* プロジェクト管理 */}
-                <ProjectsPanel />
-
-                {/* リソース管理 */}
-                <ResourcesPanel />
-
-                <IntakeWizard onResult={handleResult} />
-              </div>
+                <div style={{ marginTop: '0.8rem' }}>
+                  <ResourcesPanel />
+                </div>
+              </>
             ) : executionResult ? (
               <motion.div key="execution" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-panel" style={{ padding: '2.5rem' }}>
                 <button onClick={() => setExecutionResult(null)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: '2rem' }}>
@@ -323,22 +307,39 @@ export default function Home() {
           </AnimatePresence>
         </div>
 
+        {/* 中央列: ソース + インサイト */}
         {!(result || executionResult) && (
-          <aside className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><History size={18} /> 最近の診断履歴</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {isLoadingHistory ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>読み込み中...</p>
-              ) : history.length > 0 ? history.map((item) => (
-                <button key={item.id} onClick={() => handleSelectHistory(item)} className="history-item" style={{ textAlign: 'left', padding: '1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '12px' }}>
-                  <p style={{ fontSize: '0.85rem', color: 'white', marginBottom: '0.3rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.context}</p>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
-                </button>
-              )) : (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>履歴はありません。</p>
-              )}
+          <div>
+            <SourcesPanel />
+            <div style={{ marginTop: '0.8rem' }}>
+              <InsightsPanel />
             </div>
-          </aside>
+          </div>
+        )}
+
+        {/* 右列: プロジェクト + 診断履歴 + IntakeWizard */}
+        {!(result || executionResult) && (
+          <div>
+            <ProjectsPanel />
+            <aside className="glass-panel" style={{ padding: '0.8rem', marginTop: '0.8rem' }}>
+              <h3 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><History size={14} /> 診断履歴</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {isLoadingHistory ? (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>読み込み中...</p>
+                ) : history.length > 0 ? history.slice(0, 3).map((item) => (
+                  <button key={item.id} onClick={() => handleSelectHistory(item)} className="history-item" style={{ textAlign: 'left', padding: '0.5rem 0.6rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+                    <p style={{ fontSize: '0.75rem', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{item.context}</p>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
+                  </button>
+                )) : (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>履歴はありません。</p>
+                )}
+              </div>
+            </aside>
+            <div style={{ marginTop: '0.8rem' }}>
+              <IntakeWizard onResult={handleResult} />
+            </div>
+          </div>
         )}
       </div>
 

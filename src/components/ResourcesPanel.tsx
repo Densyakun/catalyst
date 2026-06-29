@@ -104,12 +104,12 @@ export default function ResourcesPanel() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel"
-      style={{ padding: '1.5rem', marginBottom: '1.5rem' }}
+      style={{ padding: '0.8rem', marginBottom: 0 }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-          <Package size={20} className="text-accent" />
-          リソース管理
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
+          <Package size={14} className="text-accent" />
+          リソース
           {resources.length > 0 && (
             <span style={{
               padding: '0.1rem 0.4rem',

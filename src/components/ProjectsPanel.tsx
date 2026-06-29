@@ -100,10 +100,10 @@ export default function ProjectsPanel() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel"
-      style={{ padding: '1.5rem', marginBottom: '1.5rem' }}
+      style={{ padding: '0.8rem', marginBottom: 0 }}
     >
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 1rem 0' }}>
-        <FolderKanban size={20} className="text-accent" />
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
+        <FolderKanban size={14} className="text-accent" />
         プロジェクト
         <span style={{
           padding: '0.1rem 0.4rem',

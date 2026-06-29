@@ -43,9 +43,9 @@ body::before {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 0.8rem;
 }
 
 .glass-panel {
@@ -53,8 +53,8 @@ body::before {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  padding: 2rem;
+  border-radius: 12px;
+  padding: 0.8rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
@@ -89,4 +89,10 @@ button {
 
 .card:hover {
   transform: scale(1.02);
+}
+
+@media (max-width: 900px) {
+  .main-grid {
+    grid-template-columns: 1fr !important;
+  }
 }

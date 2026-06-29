@@ -108,13 +108,13 @@ export default function ChatPanel() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel"
-      style={{ padding: '1.5rem', marginBottom: '1.5rem' }}
+      style={{ padding: '0.8rem', marginBottom: 0 }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-          <MessageSquare size={20} className="text-accent" />
-          情報収集チャット
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
+          <MessageSquare size={14} className="text-accent" />
+          チャット
         </h3>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
           <button
@@ -205,20 +205,20 @@ export default function ChatPanel() {
 
       {/* Messages */}
       <div style={{
-        maxHeight: '300px',
+        maxHeight: '200px',
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.5rem',
-        marginBottom: '0.8rem',
-        padding: '0.5rem',
+        gap: '0.3rem',
+        marginBottom: '0.5rem',
+        padding: '0.4rem',
         background: 'rgba(0,0,0,0.2)',
-        borderRadius: '8px',
-        minHeight: '100px',
+        borderRadius: '6px',
+        minHeight: '60px',
       }}>
         {messages.length === 0 && (
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem 0' }}>
-            何でも話してください。課題やリソースを自動で検出します。
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
+            課題やリソースを自動で検出します
           </p>
         )}
         {messages.map((msg, i) => (
@@ -327,12 +327,12 @@ export default function ChatPanel() {
           disabled={sending}
           style={{
             flex: 1,
-            padding: '0.6rem 0.8rem',
+            padding: '0.4rem 0.6rem',
             background: 'rgba(255,255,255,0.05)',
             border: '1px solid var(--glass-border)',
-            borderRadius: '8px',
+            borderRadius: '6px',
             color: 'white',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
             outline: 'none',
           }}
         />
@@ -341,11 +341,11 @@ export default function ChatPanel() {
           disabled={!input.trim() || sending}
           className="btn-primary"
           style={{
-            padding: '0.6rem 0.8rem',
+            padding: '0.4rem 0.6rem',
             display: 'flex',
             alignItems: 'center',
             gap: '0.3rem',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
           }}
         >
           {sending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}

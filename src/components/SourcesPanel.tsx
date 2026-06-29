@@ -234,12 +234,12 @@ export default function SourcesPanel() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel"
-      style={{ padding: '1.5rem', marginBottom: '1.5rem' }}
+      style={{ padding: '0.8rem', marginBottom: 0 }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-          <FolderOpen size={20} className="text-accent" />
-          ソース管理
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
+          <FolderOpen size={14} className="text-accent" />
+          ソース
         </h3>
         {!isConnected ? (
           <button onClick={handleConnectGoogle} className="btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
