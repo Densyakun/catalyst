@@ -4,11 +4,23 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, Send, Loader2, Plus, ChevronDown,
-  AlertCircle, Package, Lightbulb,
+  AlertCircle, Package, Lightbulb, X, FileSearch,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '@/lib/types/engine';
 
-export default function ChatPanel() {
+export interface EditingInsight {
+  id: string;
+  title: string;
+  content: string;
+}
+
+interface ChatPanelProps {
+  editingInsight?: EditingInsight | null;
+  onClearEditingInsight?: () => void;
+  onInsightUpdated?: () => void;
+}
+
+export default function ChatPanel({ editingInsight, onClearEditingInsight, onInsightUpdated }: ChatPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -20,6 +32,7 @@ export default function ChatPanel() {
     resources: string[];
     info: string[];
   } | null>(null);
+  const [reinvestigateResult, setReinvestigateResult] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -69,13 +82,20 @@ export default function ChatPanel() {
     setSending(true);
 
     try {
+      const body: Record<string, string | null> = {
+        conversation_id: activeConvId,
+        message: userMsg.content,
+      };
+      if (editingInsight) {
+        body.editing_insight_id = editingInsight.id;
+        body.editing_insight_title = editingInsight.title;
+        body.editing_insight_content = editingInsight.content;
+      }
+
       const res = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversation_id: activeConvId,
-          message: userMsg.content,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
@@ -83,6 +103,10 @@ export default function ChatPanel() {
         setActiveConvId(data.conversation_id);
         setMessages((prev) => [...prev, data.reply]);
         setExtractedSummary(data.extracted_items);
+        setReinvestigateResult(data.reinvestigate_result || null);
+        if (data.insight_updated) {
+          onInsightUpdated?.();
+        }
         fetchConversations();
       }
     } catch (err) {
@@ -203,6 +227,33 @@ export default function ChatPanel() {
         )}
       </AnimatePresence>
 
+      {/* Editing Insight Banner */}
+      {editingInsight && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+          padding: '0.4rem 0.6rem',
+          background: 'rgba(139, 92, 246, 0.1)',
+          border: '1px solid rgba(139, 92, 246, 0.3)',
+          borderRadius: '6px',
+          marginBottom: '0.4rem',
+          fontSize: '0.7rem',
+          color: '#a78bfa',
+        }}>
+          <Lightbulb size={10} />
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            編集中: {editingInsight.title}
+          </span>
+          <button
+            onClick={onClearEditingInsight}
+            style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', padding: 0, display: 'flex' }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
       {/* Messages */}
       <div style={{
         maxHeight: '200px',
@@ -316,6 +367,29 @@ export default function ChatPanel() {
         </motion.div>
       )}
 
+      {/* Reinvestigate Result */}
+      {reinvestigateResult && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: '0.4rem 0.6rem',
+            background: 'rgba(59, 130, 246, 0.1)',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            borderRadius: '6px',
+            marginBottom: '0.4rem',
+            fontSize: '0.7rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            color: '#60a5fa',
+          }}
+        >
+          <FileSearch size={10} />
+          {reinvestigateResult}
+        </motion.div>
+      )}
+
       {/* Input */}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <input
@@ -323,7 +397,7 @@ export default function ChatPanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="困っていること、やりたいこと、持っているリソースなど..."
+          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、やりたいこと、持っているリソースなど..."}
           disabled={sending}
           style={{
             flex: 1,

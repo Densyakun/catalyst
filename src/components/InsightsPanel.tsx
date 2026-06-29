@@ -4,11 +4,17 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Lightbulb, Play, Pause, FileEdit, ChevronDown, ChevronUp,
-  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye, FolderKanban, Trash2,
+  Loader2, Zap, Clock, AlertTriangle, CheckCircle2, Eye, FolderKanban, Trash2, MessageSquare,
 } from 'lucide-react';
 import type { AutoInsight, DiffData, DiffChange } from '@/lib/types/sources';
+import type { EditingInsight } from './ChatPanel';
 
-export default function InsightsPanel() {
+interface InsightsPanelProps {
+  onEditInChat?: (insight: EditingInsight) => void;
+  refreshKey?: number;
+}
+
+export default function InsightsPanel({ onEditInChat, refreshKey }: InsightsPanelProps) {
   const [insights, setInsights] = useState<AutoInsight[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -32,7 +38,7 @@ export default function InsightsPanel() {
 
   useEffect(() => {
     fetchInsights();
-  }, []);
+  }, [refreshKey]);
 
   const handleDecompose = async (insight: AutoInsight) => {
     setProjectLoading(insight.id);
@@ -229,6 +235,7 @@ export default function InsightsPanel() {
             projectLoading={projectLoading === insight.id}
             onDelete={handleDelete}
             deleteLoading={deleteLoading === insight.id}
+            onEditInChat={onEditInChat}
             getStatusBadge={getStatusBadge}
             getUrgencyIcon={getUrgencyIcon}
             getUrgencyBadge={getUrgencyBadge}
@@ -275,6 +282,7 @@ function InsightCard({
   projectLoading,
   onDelete,
   deleteLoading,
+  onEditInChat,
   getStatusBadge,
   getUrgencyIcon,
   getUrgencyBadge,
@@ -288,6 +296,7 @@ function InsightCard({
   projectLoading: boolean;
   onDelete: (id: string) => void;
   deleteLoading: boolean;
+  onEditInChat?: (insight: EditingInsight) => void;
   getStatusBadge: (i: AutoInsight) => React.ReactNode;
   getUrgencyIcon: (i: AutoInsight) => React.ReactNode;
   getUrgencyBadge: (i: AutoInsight) => React.ReactNode;
@@ -432,30 +441,56 @@ function InsightCard({
                 </div>
               )}
 
-              {/* 削除ボタン */}
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(insight.id); }}
-                disabled={deleteLoading}
-                style={{
-                  width: '100%',
-                  padding: '0.35rem',
-                  fontSize: '0.7rem',
-                  background: 'rgba(239, 68, 68, 0.05)',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  borderRadius: '6px',
-                  color: '#ef4444',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.2rem',
-                  marginTop: '0.5rem',
-                  opacity: deleteLoading ? 0.5 : 1,
-                }}
-              >
-                {deleteLoading ? <Loader2 className="animate-spin" size={10} /> : <Trash2 size={10} />}
-                削除
-              </button>
+              {/* チャットで修正 + 削除 */}
+              <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem' }}>
+                {onEditInChat && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditInChat({ id: insight.id, title: insight.title, content: insight.content });
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '0.35rem',
+                      fontSize: '0.7rem',
+                      background: 'rgba(99, 102, 241, 0.05)',
+                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                      borderRadius: '6px',
+                      color: 'var(--accent-color)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.2rem',
+                    }}
+                  >
+                    <MessageSquare size={10} />
+                    チャットで修正
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(insight.id); }}
+                  disabled={deleteLoading}
+                  style={{
+                    flex: onEditInChat ? 'none' : 1,
+                    padding: '0.35rem 0.6rem',
+                    fontSize: '0.7rem',
+                    background: 'rgba(239, 68, 68, 0.05)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                    borderRadius: '6px',
+                    color: '#ef4444',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.2rem',
+                    opacity: deleteLoading ? 0.5 : 1,
+                  }}
+                >
+                  {deleteLoading ? <Loader2 className="animate-spin" size={10} /> : <Trash2 size={10} />}
+                  削除
+                </button>
+              </div>
 
               {insight.status === 'on_hold' && (
                 <button

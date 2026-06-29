@@ -10,6 +10,17 @@ interface ChatAnalysis {
     info: string[];
   };
   suggested_title: string | null;
+  insight_update: {
+    title: string;
+    content: string;
+  } | null;
+  reinvestigate_keywords: string[];
+}
+
+interface EditingInsightContext {
+  id: string;
+  title: string;
+  content: string;
 }
 
 /**
@@ -20,9 +31,10 @@ export async function analyzeChatMessage(
   userMessage: string,
   existingProblems?: string[],
   existingResources?: string[],
+  editingInsight?: EditingInsightContext | null,
 ): Promise<ChatAnalysis> {
   const history = messages
-    .slice(-20) // 直近20件のみ
+    .slice(-20)
     .map((m) => `${m.role === 'user' ? 'ユーザー' : 'AI'}: ${m.content}`)
     .join('\n');
 
@@ -30,6 +42,10 @@ export async function analyzeChatMessage(
     existingProblems?.length ? `【既知の課題】\n${existingProblems.join('\n')}` : '',
     existingResources?.length ? `【既知のリソース】\n${existingResources.join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
+
+  const insightContext = editingInsight
+    ? `\n【編集中のインサイト】\nタイトル: ${editingInsight.title}\n内容: ${editingInsight.content}\n\nユーザーがこのインサイトを修正したい場合、insight_updateに修正後のタイトルと内容を出力せよ。`
+    : '';
 
   const { object } = await generateObjectForRole<ChatAnalysis>('structuring', {
     schema: z.object({
@@ -48,6 +64,11 @@ export async function analyzeChatMessage(
         info: z.array(z.string()).describe('その他の有用な情報'),
       }),
       suggested_title: z.string().nullable().describe('会話のタイトル提案（最初の数メッセージ後に提案）'),
+      insight_update: z.object({
+        title: z.string(),
+        content: z.string(),
+      }).nullable().describe('編集中のインサイトがある場合、ユーザーの指示に基づいた修正後の内容。編集中でない場合はnull'),
+      reinvestigate_keywords: z.array(z.string()).describe('ユーザーがドキュメントの再調査を求めている場合、検索すべきキーワード。求めていない場合は空配列'),
     }),
     prompt: `Catalyst 情報収集エージェント。ユーザーとの対話を通じて、課題・リソース・情報を自然に収集せよ。
 
@@ -57,6 +78,8 @@ export async function analyzeChatMessage(
 3. 既知の情報と重複するものは抽出しない
 4. 強制的に情報を引き出そうとせず、自然な会話を心がける
 5. 返答は簡潔に（3文以内）
+6. ユーザーが「もっと調べて」「ドキュメントを確認して」「関連情報を探して」等と言った場合、reinvestigate_keywordsに検索キーワードを出力する
+7. 編集中のインサイトがある場合、ユーザーの修正指示に応じてinsight_updateを出力する
 
 【会話履歴】
 ${history || 'なし'}
@@ -64,7 +87,7 @@ ${history || 'なし'}
 【新しいメッセージ】
 ユーザー: ${userMessage}
 
-${existingContext}
+${existingContext}${insightContext}
 `,
   });
 

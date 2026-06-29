@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { conversation_id, message } = await req.json();
+    const { conversation_id, message, editing_insight_id, editing_insight_title, editing_insight_content } = await req.json();
 
     // 既存の会話を取得 or 新規作成
     let conversationId = conversation_id;
@@ -89,12 +89,18 @@ export async function POST(req: NextRequest) {
     const existingProblems = (problemsResult.data || []).map((p) => p.context);
     const existingResources = (resourcesResult.data || []).map((r) => `${r.name}: ${r.description || ''}`);
 
+    // 編集中インサイトのコンテキスト
+    const editingInsight = editing_insight_id
+      ? { id: editing_insight_id, title: editing_insight_title || '', content: editing_insight_content || '' }
+      : null;
+
     // AI分析
     const analysis = await analyzeChatMessage(
       existingMessages,
       message,
       existingProblems,
       existingResources,
+      editingInsight,
     );
 
     // AIの返答メッセージ
@@ -157,6 +163,48 @@ export async function POST(req: NextRequest) {
       conversationId = newConv.id;
     }
 
+    // インサイト修正
+    let insightUpdated = false;
+    if (editing_insight_id && analysis.insight_update) {
+      const { error: updateError } = await supabase
+        .from('auto_insights')
+        .update({
+          title: analysis.insight_update.title,
+          content: analysis.insight_update.content,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editing_insight_id)
+        .eq('user_id', user.id);
+
+      if (!updateError) {
+        insightUpdated = true;
+      }
+    }
+
+    // ドキュメント再調査
+    let reinvestigateResult: string | null = null;
+    if (analysis.reinvestigate_keywords.length > 0) {
+      try {
+        const collectRes = await fetch(new URL('/api/sources/auto-collect', req.url).toString(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            cookie: req.headers.get('cookie') || '',
+          },
+          body: JSON.stringify({
+            mode: 'keyword',
+            query: analysis.reinvestigate_keywords.join(' '),
+          }),
+        });
+        if (collectRes.ok) {
+          const collectData = await collectRes.json();
+          reinvestigateResult = collectData.message || `${analysis.reinvestigate_keywords.join(', ')} で再調査しました`;
+        }
+      } catch (err) {
+        console.error('Reinvestigate error:', err);
+      }
+    }
+
     // コストログ
     await logCost({
       userId: user.id,
@@ -168,6 +216,8 @@ export async function POST(req: NextRequest) {
       conversation_id: conversationId,
       reply: assistantMessage,
       extracted_items: analysis.extracted_items,
+      insight_updated: insightUpdated,
+      reinvestigate_result: reinvestigateResult,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

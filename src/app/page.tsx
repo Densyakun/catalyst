@@ -9,6 +9,7 @@ import ChatPanel from '@/components/ChatPanel';
 import ResourcesPanel from '@/components/ResourcesPanel';
 import ProjectsPanel from '@/components/ProjectsPanel';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { EditingInsight } from '@/components/ChatPanel';
 import { Zap, Target, History, Sparkles, ExternalLink, MessageCircleWarning, ArrowLeft, LogOut, User, CheckCircle2, ChevronRight, MessageSquare, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -20,6 +21,8 @@ export default function Home() {
   const [clusters, setClusters] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [editingInsight, setEditingInsight] = useState<EditingInsight | null>(null);
+  const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -202,7 +205,14 @@ export default function Home() {
                   </div>
                 )}
                 {/* 左列: チャット + リソース */}
-                <ChatPanel />
+                <ChatPanel
+                  editingInsight={editingInsight}
+                  onClearEditingInsight={() => setEditingInsight(null)}
+                  onInsightUpdated={() => {
+                    setInsightsRefreshKey((k) => k + 1);
+                    setEditingInsight(null);
+                  }}
+                />
                 <div style={{ marginTop: '0.8rem' }}>
                   <ResourcesPanel />
                 </div>
@@ -312,7 +322,10 @@ export default function Home() {
           <div>
             <SourcesPanel />
             <div style={{ marginTop: '0.8rem' }}>
-              <InsightsPanel />
+              <InsightsPanel
+                onEditInChat={(insight) => setEditingInsight(insight)}
+                refreshKey={insightsRefreshKey}
+              />
             </div>
           </div>
         )}
