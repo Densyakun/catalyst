@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Plus, RefreshCw, Search, CheckCircle2, Clock,
-  Link2, Loader2, X, Filter, FolderOpen, Zap,
+  Link2, Loader2, X, Filter, FolderOpen, Zap, ChevronDown,
 } from 'lucide-react';
 import type { UserSource } from '@/lib/types/sources';
 
@@ -32,6 +32,7 @@ export default function SourcesPanel() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoCollecting, setAutoCollecting] = useState(false);
   const [collectResult, setCollectResult] = useState<string | null>(null);
+  const [showSourceList, setShowSourceList] = useState(false);
 
   const fetchGoogleDocs = async (query?: string) => {
     setSearchLoading(true);
@@ -365,81 +366,127 @@ export default function SourcesPanel() {
       )}
 
       {/* 連携済みソース一覧 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {sources.map((source) => {
-          const config = source.source_config as { doc_id?: string; doc_title?: string };
-          return (
-            <div
-              key={source.id}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '0.6rem 0.8rem',
-                background: 'rgba(255,255,255,0.03)',
-                borderRadius: '8px',
-                border: '1px solid var(--glass-border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-                {syncMode === 'selected' && (
-                  <input
-                    type="checkbox"
-                    checked={selectedDocs.has(config?.doc_id || '')}
-                    onChange={() => toggleDocSelection(config?.doc_id || '')}
-                    style={{ accentColor: 'var(--accent-color)' }}
-                  />
-                )}
-                <FileText size={16} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: '0.85rem', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {source.source_name}
-                  </p>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <Clock size={10} />
-                    {formatTime(source.last_synced_at)}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => handleSync(source.id)}
-                disabled={syncing === source.id}
-                style={{
-                  padding: '0.3rem 0.5rem',
-                  background: 'transparent',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '6px',
-                  color: 'var(--text-secondary)',
-                  cursor: syncing === source.id ? 'wait' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.2rem',
-                  fontSize: '0.75rem',
-                }}
-              >
-                {syncing === source.id ? (
-                  <Loader2 className="animate-spin" size={12} />
-                ) : (
-                  <RefreshCw size={12} />
-                )}
-                同期
-              </button>
+      {sources.length > 0 && (
+        <button
+          onClick={() => setShowSourceList(!showSourceList)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0.4rem 0.5rem',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: '6px',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '0.75rem',
+            marginBottom: showSourceList ? '0.4rem' : 0,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <FileText size={12} style={{ color: 'var(--accent-color)' }} />
+            ドキュメント一覧
+            <span style={{
+              padding: '0 0.3rem',
+              background: 'rgba(99, 102, 241, 0.2)',
+              borderRadius: '8px',
+              fontSize: '0.65rem',
+              color: 'var(--accent-color)',
+            }}>
+              {sources.length}
+            </span>
+          </span>
+          <ChevronDown size={12} style={{ transform: showSourceList ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        </button>
+      )}
+
+      <AnimatePresence>
+        {showSourceList && sources.length > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '200px', overflowY: 'auto' }}>
+              {sources.map((source) => {
+                const config = source.source_config as { doc_id?: string; doc_title?: string };
+                return (
+                  <div
+                    key={source.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '0.4rem 0.6rem',
+                      background: 'rgba(255,255,255,0.03)',
+                      borderRadius: '6px',
+                      border: '1px solid var(--glass-border)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, minWidth: 0 }}>
+                      {syncMode === 'selected' && (
+                        <input
+                          type="checkbox"
+                          checked={selectedDocs.has(config?.doc_id || '')}
+                          onChange={() => toggleDocSelection(config?.doc_id || '')}
+                          style={{ accentColor: 'var(--accent-color)' }}
+                        />
+                      )}
+                      <FileText size={12} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: '0.75rem', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {source.source_name}
+                        </p>
+                        <p style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                          <Clock size={8} />
+                          {formatTime(source.last_synced_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSync(source.id)}
+                      disabled={syncing === source.id}
+                      style={{
+                        padding: '0.2rem 0.4rem',
+                        background: 'transparent',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: '4px',
+                        color: 'var(--text-secondary)',
+                        cursor: syncing === source.id ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.2rem',
+                        fontSize: '0.65rem',
+                      }}
+                    >
+                      {syncing === source.id ? (
+                        <Loader2 className="animate-spin" size={10} />
+                      ) : (
+                        <RefreshCw size={10} />
+                      )}
+                      同期
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-
-        {sources.length === 0 && isConnected && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>
-            上の「目的指定」や「全件読み込み」でドキュメントを自動収集できます
-          </p>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        {!isConnected && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>
-            Googleアカウントを連携すると、ドキュメントから自動で課題を検出できます
-          </p>
-        )}
-      </div>
+      {sources.length === 0 && isConnected && (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '0.5rem' }}>
+          「目的指定」や「全件読み込み」でドキュメントを自動収集できます
+        </p>
+      )}
+
+      {!isConnected && (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '0.5rem' }}>
+          Googleアカウントを連携すると、ドキュメントから自動で課題を検出できます
+        </p>
+      )}
 
       {/* 個別選択モードの一括同期ボタン */}
       {sources.length > 0 && syncMode === 'selected' && (
