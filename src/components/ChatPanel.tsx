@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, Send, Loader2, Plus, ChevronDown,
-  AlertCircle, Package, Lightbulb, X, FileSearch,
+  AlertCircle, Package, Lightbulb, X, FileSearch, FolderOpen,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '@/lib/types/engine';
 
@@ -18,9 +18,11 @@ interface ChatPanelProps {
   editingInsight?: EditingInsight | null;
   onClearEditingInsight?: () => void;
   onInsightUpdated?: () => void;
+  sourceNames?: string[];
+  onSourcesChanged?: () => void;
 }
 
-export default function ChatPanel({ editingInsight, onClearEditingInsight, onInsightUpdated }: ChatPanelProps) {
+export default function ChatPanel({ editingInsight, onClearEditingInsight, onInsightUpdated, sourceNames, onSourcesChanged }: ChatPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -33,6 +35,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
     info: string[];
   } | null>(null);
   const [reinvestigateResult, setReinvestigateResult] = useState<string | null>(null);
+  const [sourceActionResult, setSourceActionResult] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -82,9 +85,10 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
     setSending(true);
 
     try {
-      const body: Record<string, string | null> = {
+      const body: Record<string, unknown> = {
         conversation_id: activeConvId,
         message: userMsg.content,
+        source_names: sourceNames || [],
       };
       if (editingInsight) {
         body.editing_insight_id = editingInsight.id;
@@ -104,8 +108,12 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         setMessages((prev) => [...prev, data.reply]);
         setExtractedSummary(data.extracted_items);
         setReinvestigateResult(data.reinvestigate_result || null);
+        setSourceActionResult(data.source_action_result || null);
         if (data.insight_updated) {
           onInsightUpdated?.();
+        }
+        if (data.sources_changed) {
+          onSourcesChanged?.();
         }
         fetchConversations();
       }
@@ -269,7 +277,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
       }}>
         {messages.length === 0 && (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
-            課題やリソースを自動で検出します
+            課題やリソースを自動で検出します。ドキュメントの追加・処理もここから指示できます
           </p>
         )}
         {messages.map((msg, i) => (
@@ -390,6 +398,30 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         </motion.div>
       )}
 
+      {/* Source Action Result */}
+      {sourceActionResult && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: '0.4rem 0.6rem',
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.2)',
+            borderRadius: '6px',
+            marginBottom: '0.4rem',
+            fontSize: '0.7rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.3rem',
+            color: '#4ade80',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <FolderOpen size={10} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+          {sourceActionResult}
+        </motion.div>
+      )}
+
       {/* Input */}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <input
@@ -397,7 +429,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、やりたいこと、持っているリソースなど..."}
+          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、ドキュメントの追加・処理指示など..."}
           disabled={sending}
           style={{
             flex: 1,

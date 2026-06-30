@@ -15,6 +15,11 @@ interface ChatAnalysis {
     content: string;
   } | null;
   reinvestigate_keywords: string[];
+  source_action: {
+    type: 'import_keyword' | 'import_all' | 'process';
+    keywords: string[];
+    prompt: string | null;
+  } | null;
 }
 
 interface EditingInsightContext {
@@ -32,6 +37,7 @@ export async function analyzeChatMessage(
   existingProblems?: string[],
   existingResources?: string[],
   editingInsight?: EditingInsightContext | null,
+  sourceNames?: string[],
 ): Promise<ChatAnalysis> {
   const history = messages
     .slice(-20)
@@ -41,6 +47,7 @@ export async function analyzeChatMessage(
   const existingContext = [
     existingProblems?.length ? `【既知の課題】\n${existingProblems.join('\n')}` : '',
     existingResources?.length ? `【既知のリソース】\n${existingResources.join('\n')}` : '',
+    sourceNames?.length ? `【登録済みソース（ドキュメント）】\n${sourceNames.join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
 
   const insightContext = editingInsight
@@ -69,6 +76,11 @@ export async function analyzeChatMessage(
         content: z.string(),
       }).nullable().describe('編集中のインサイトがある場合、ユーザーの指示に基づいた修正後の内容。編集中でない場合はnull'),
       reinvestigate_keywords: z.array(z.string()).describe('ユーザーがドキュメントの再調査を求めている場合、検索すべきキーワード。求めていない場合は空配列'),
+      source_action: z.object({
+        type: z.enum(['import_keyword', 'import_all', 'process']).describe('import_keyword: キーワードでDriveからドキュメントをインポート, import_all: 全ドキュメントを読み込み, process: 登録済みソースに対してプロンプトで処理'),
+        keywords: z.array(z.string()).describe('import_keywordの場合の検索キーワード。processの場合は対象ソース名（空なら全ソース）'),
+        prompt: z.string().nullable().describe('processの場合、ソースに対する処理指示（例: 課題をまとめて）。import系の場合はnull'),
+      }).nullable().describe('ソース（ドキュメント）操作。ユーザーがドキュメントの追加・読み込み・処理を指示した場合に出力。指示がない場合はnull'),
     }),
     prompt: `Catalyst 情報収集エージェント。ユーザーとの対話を通じて、課題・リソース・情報を自然に収集せよ。
 
@@ -80,6 +92,12 @@ export async function analyzeChatMessage(
 5. 返答は簡潔に（3文以内）
 6. ユーザーが「もっと調べて」「ドキュメントを確認して」「関連情報を探して」等と言った場合、reinvestigate_keywordsに検索キーワードを出力する
 7. 編集中のインサイトがある場合、ユーザーの修正指示に応じてinsight_updateを出力する
+8. ソース操作の判定:
+   - 「○○に関するドキュメントを取り込んで」「○○のドキュメントを追加して」→ source_action: {type: 'import_keyword', keywords: ['○○'], prompt: null}
+   - 「全てのドキュメントを読み込んで」「ドキュメントを全件取り込んで」→ source_action: {type: 'import_all', keywords: [], prompt: null}
+   - 「ドキュメントから課題をまとめて」「ソースの内容を分析して」→ source_action: {type: 'process', keywords: [], prompt: '課題をまとめて'}
+   - 「○○のドキュメントから要点を抽出して」→ source_action: {type: 'process', keywords: ['○○'], prompt: '要点を抽出して'}
+   - ソース操作でない場合 → source_action: null
 
 【会話履歴】
 ${history || 'なし'}

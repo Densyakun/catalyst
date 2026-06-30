@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import IntakeWizard from '@/components/IntakeWizard';
 import AuthUI from '@/components/Auth';
 import SourcesPanel from '@/components/SourcesPanel';
@@ -23,6 +23,8 @@ export default function Home() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [editingInsight, setEditingInsight] = useState<EditingInsight | null>(null);
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
+  const [sourcesRefreshKey, setSourcesRefreshKey] = useState(0);
+  const [sourceNames, setSourceNames] = useState<string[]>([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -67,12 +69,31 @@ export default function Home() {
     }
   };
 
+  const fetchSourceNames = async () => {
+    try {
+      const res = await fetch('/api/sources');
+      if (res.ok) {
+        const data = await res.json();
+        setSourceNames((data.sources || []).map((s: { source_name: string }) => s.source_name));
+      }
+    } catch (err) {
+      console.error('Fetch source names error:', err);
+    }
+  };
+
   useEffect(() => {
     if (session) {
       fetchHistory();
       fetchClusters();
+      fetchSourceNames();
     }
   }, [session]);
+
+  const handleSourcesChanged = useCallback(() => {
+    setSourcesRefreshKey((k) => k + 1);
+    setInsightsRefreshKey((k) => k + 1);
+    fetchSourceNames();
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -212,6 +233,8 @@ export default function Home() {
                     setInsightsRefreshKey((k) => k + 1);
                     setEditingInsight(null);
                   }}
+                  sourceNames={sourceNames}
+                  onSourcesChanged={handleSourcesChanged}
                 />
                 <div style={{ marginTop: '0.8rem' }}>
                   <ResourcesPanel />
@@ -320,7 +343,7 @@ export default function Home() {
         {/* 中央列: ソース + インサイト */}
         {!(result || executionResult) && (
           <div>
-            <SourcesPanel />
+            <SourcesPanel refreshKey={sourcesRefreshKey} />
             <div style={{ marginTop: '0.8rem' }}>
               <InsightsPanel
                 onEditInChat={(insight) => setEditingInsight(insight)}
