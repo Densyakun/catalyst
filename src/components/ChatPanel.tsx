@@ -30,8 +30,8 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
   const [sending, setSending] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [extractedSummary, setExtractedSummary] = useState<{
-    problems: string[];
-    resources: string[];
+    problems: { description: string; category: string; urgency: string }[];
+    resources: { name: string; type: string; description: string }[];
     info: string[];
   } | null>(null);
   const [reinvestigateResult, setReinvestigateResult] = useState<string | null>(null);

@@ -2,7 +2,7 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['googleapis'],
+  serverExternalPackages: ['@modelcontextprotocol/sdk'],
   turbopack: {
     root: path.join(__dirname),
   },

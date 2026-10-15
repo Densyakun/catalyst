@@ -1,45 +1,85 @@
-import { google } from 'googleapis';
-import type { OAuth2Client } from 'googleapis-common';
+/**
+ * Google Docs / Drive の REST API を fetch で直接叩く。
+ * （googleapis の node:https 依存を避け、Cloudflare Workers 等でも動作させる）
+ */
+
+const DOCS_API = 'https://docs.googleapis.com/v1';
+const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+
+interface DocParagraphElement {
+  textRun?: { content?: string };
+}
+
+interface DocStructuralElement {
+  endIndex?: number;
+  paragraph?: { elements?: DocParagraphElement[] };
+  table?: {
+    tableRows?: Array<{
+      tableCells?: Array<{ content?: DocStructuralElement[] }>;
+    }>;
+  };
+}
+
+interface DocDocument {
+  title?: string;
+  body?: { content?: DocStructuralElement[] };
+}
+
+async function googleError(res: Response): Promise<string> {
+  let detail = '';
+  try {
+    const data = await res.json();
+    detail = data?.error?.message || JSON.stringify(data);
+  } catch {
+    detail = res.statusText;
+  }
+  return `Google API ${res.status}: ${detail}`;
+}
 
 /**
  * Google Docsからテキスト内容を取得
  */
 export async function fetchDocContent(
-  auth: OAuth2Client,
+  accessToken: string,
   docId: string,
 ): Promise<{ title: string; content: string }> {
-  const docs = google.docs({ version: 'v1', auth });
-  const res = await docs.documents.get({ documentId: docId });
-  const doc = res.data;
+  const res = await fetch(`${DOCS_API}/documents/${encodeURIComponent(docId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(await googleError(res));
 
-  const title = doc.title || 'Untitled';
-  const content = extractTextFromDoc(doc);
-
-  return { title, content };
+  const doc = (await res.json()) as DocDocument;
+  return {
+    title: doc.title || 'Untitled',
+    content: extractTextFromDoc(doc),
+  };
 }
 
 /**
  * Google Docsのドキュメントオブジェクトからプレーンテキストを抽出
  */
-function extractTextFromDoc(doc: { title?: string | null; body?: { content?: Array<Record<string, unknown>> } }): string {
+function extractTextFromDoc(doc: DocDocument): string {
   const body = doc.body;
   if (!body?.content) return '';
 
   let text = '';
   for (const element of body.content) {
-    if (element.paragraph) {
-      for (const el of element.paragraph.elements || []) {
+    const paragraph = element.paragraph;
+    if (paragraph?.elements) {
+      for (const el of paragraph.elements) {
         if (el.textRun?.content) {
           text += el.textRun.content;
         }
       }
     }
-    if (element.table) {
-      for (const row of element.table.tableRows || []) {
+    const table = element.table;
+    if (table?.tableRows) {
+      for (const row of table.tableRows) {
         for (const cell of row.tableCells || []) {
           for (const cellContent of cell.content || []) {
-            if (cellContent.paragraph) {
-              for (const el of cellContent.paragraph.elements || []) {
+            const cellParagraph = cellContent.paragraph;
+            if (cellParagraph?.elements) {
+              for (const el of cellParagraph.elements) {
                 if (el.textRun?.content) {
                   text += el.textRun.content;
                 }
@@ -60,72 +100,63 @@ function extractTextFromDoc(doc: { title?: string | null; body?: { content?: Arr
  * Google Docsにテキストを書き戻す（全置換方式）
  */
 export async function writeDocContent(
-  auth: OAuth2Client,
+  accessToken: string,
   docId: string,
   newContent: string,
 ): Promise<void> {
-  const docs = google.docs({ version: 'v1', auth });
-
-  // 現在のドキュメント内容を取得して既存テキストの範囲を特定
-  const current = await docs.documents.get({ documentId: docId });
-  const body = current.data.body;
-  if (!body?.content) return;
-
-  // ドキュメントの末尾インデックスを取得
-  const lastElement = body.content[body.content.length - 1];
-  const endIndex = lastElement?.endIndex ?? 1;
-
-  if (endIndex <= 2) {
-    // 空のドキュメント → 挿入のみ
-    await docs.documents.batchUpdate({
-      documentId: docId,
-      requestBody: {
-        requests: [
-          { insertText: { location: { index: 1 }, text: newContent } },
-        ],
-      },
-    });
-    return;
-  }
-
-  // 既存テキストを削除してから新しいテキストを挿入
-  await docs.documents.batchUpdate({
-    documentId: docId,
-    requestBody: {
-      requests: [
-        {
-          deleteContentRange: {
-            range: { startIndex: 1, endIndex: endIndex - 1 },
-          },
-        },
-        { insertText: { location: { index: 1 }, text: newContent } },
-      ],
-    },
+  const currentRes = await fetch(`${DOCS_API}/documents/${encodeURIComponent(docId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (!currentRes.ok) throw new Error(await googleError(currentRes));
+
+  const current = (await currentRes.json()) as DocDocument;
+  const content = current.body?.content;
+  const endIndex = content?.length ? content[content.length - 1].endIndex ?? 1 : 1;
+
+  const requests = endIndex <= 2
+    ? [{ insertText: { location: { index: 1 }, text: newContent } }]
+    : [
+        { deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } },
+        { insertText: { location: { index: 1 }, text: newContent } },
+      ];
+
+  const updateRes = await fetch(`${DOCS_API}/documents/${encodeURIComponent(docId)}:batchUpdate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ requests }),
+  });
+  if (!updateRes.ok) throw new Error(await googleError(updateRes));
 }
 
 /**
  * Google Driveからドキュメント一覧を取得
  */
 export async function listDocs(
-  auth: OAuth2Client,
+  accessToken: string,
   query?: string,
 ): Promise<Array<{ id: string; name: string; modifiedTime: string }>> {
-  const drive = google.drive({ version: 'v3', auth });
-
   let q = "mimeType='application/vnd.google-apps.document' and trashed = false";
   if (query) {
     q += ` and fullText contains '${query.replace(/'/g, "\\'")}'`;
   }
 
-  const res = await drive.files.list({
+  const params = new URLSearchParams({
     q,
     fields: 'files(id, name, modifiedTime)',
     orderBy: 'modifiedTime desc',
-    pageSize: 50,
+    pageSize: '50',
   });
 
-  return (res.data.files || []).map((f) => ({
+  const res = await fetch(`${DRIVE_API}/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(await googleError(res));
+
+  const data = (await res.json()) as { files?: Array<{ id?: string; name?: string; modifiedTime?: string }> };
+  return (data.files || []).map((f) => ({
     id: f.id || '',
     name: f.name || 'Untitled',
     modifiedTime: f.modifiedTime || '',

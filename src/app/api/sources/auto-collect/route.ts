@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { getAuthClientForUser } from '@/lib/google/oauth';
+import { getGoogleAccessToken } from '@/lib/google/oauth';
 import { listDocs, fetchDocContent } from '@/lib/google/docs';
 import { extractIntents, estimateInsightCost } from '@/lib/ai/agents/proactive';
 import { createHash } from 'crypto';
@@ -24,17 +24,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { mode, query } = body as { mode: 'all' | 'keyword'; query?: string };
 
-    const authResult = await getAuthClientForUser(supabase, user.id);
+    const authResult = await getGoogleAccessToken(supabase, user.id);
     if (authResult.error === 'not_connected') {
       return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
     if (authResult.error === 're_auth_required') {
       return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
     }
-    const auth = authResult.auth;
+    const accessToken = authResult.accessToken;
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
+    }
 
     // Google Driveからドキュメントを検索
-    const docs = await listDocs(auth, mode === 'keyword' ? query : undefined);
+    const docs = await listDocs(accessToken, mode === 'keyword' ? query : undefined);
 
     if (docs.length === 0) {
       return NextResponse.json({
@@ -101,7 +104,7 @@ export async function POST(req: NextRequest) {
 
       // ドキュメント内容を取得して同期
       try {
-        const { title, content } = await fetchDocContent(auth, doc.id);
+        const { title, content } = await fetchDocContent(accessToken, doc.id);
         if (!content.trim()) continue;
 
         const contentHash = createHash('sha256').update(content).digest('hex');

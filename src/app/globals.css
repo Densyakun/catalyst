@@ -96,3 +96,99 @@ button {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ============================================================
+   自己進化エンジン / フィードバック
+   ============================================================ */
+.feedback-fab {
+  position: fixed;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--accent-gradient);
+  color: white;
+  font-size: 0.8rem;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
+.feedback-panel {
+  position: fixed;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  z-index: 61;
+  width: min(360px, calc(100vw - 2rem));
+  padding: 1rem;
+  background: rgba(15, 15, 20, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.feedback-chip {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.feedback-chip.active {
+  border-color: var(--accent-color);
+  background: rgba(59, 130, 246, 0.15);
+  color: white;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: white;
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+
+.evolution-proposal {
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.evolution-cat {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-color);
+}
+
+/* 動的UI（tsx-safe-eval）キット */
+.ev-card { padding: 0.8rem; }
+.ev-title { font-size: 0.95rem; margin-bottom: 0.4rem; }
+.ev-text { font-size: 0.8rem; color: var(--text-secondary); }
+.ev-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  margin-right: 0.3rem;
+}
+.ev-btn { padding: 0.4rem 0.9rem !important; font-size: 0.75rem !important; margin-top: 0.5rem; display: inline-block; text-decoration: none; }
+.ev-list { margin: 0.4rem 0 0 1rem; font-size: 0.78rem; color: var(--text-secondary); }
+.ev-note { font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8; margin-top: 0.4rem; }

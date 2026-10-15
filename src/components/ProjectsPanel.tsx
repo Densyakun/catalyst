@@ -152,7 +152,9 @@ export default function ProjectsPanel() {
                       {project.title}
                     </span>
                     {project.is_social && (
-                      <Users size={12} style={{ color: '#8b5cf6', flexShrink: 0 }} title="社会課題" />
+                      <span title="社会課題" style={{ display: 'inline-flex', flexShrink: 0 }}>
+                        <Users size={12} style={{ color: '#8b5cf6' }} />
+                      </span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
@@ -319,10 +321,14 @@ function TaskRow({
             {task.title}
           </span>
           {task.execution_type === 'user' && (
-            <User size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="ユーザー実行" />
+            <span title="ユーザー実行" style={{ display: 'inline-flex', flexShrink: 0 }}>
+              <User size={10} style={{ color: '#f59e0b' }} />
+            </span>
           )}
           {task.execution_type === 'auto' && (
-            <Zap size={10} style={{ color: '#22c55e', flexShrink: 0 }} title="自動実行" />
+            <span title="自動実行" style={{ display: 'inline-flex', flexShrink: 0 }}>
+              <Zap size={10} style={{ color: '#22c55e' }} />
+            </span>
           )}
         </div>
       </div>

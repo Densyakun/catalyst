@@ -1,6 +1,5 @@
 import { generateObjectForRole } from '@/lib/ai/call';
 import { z } from 'zod';
-import { Problem } from '@/lib/types/schema';
 import { ProposedAction } from '@/lib/types/ai';
 
 /**
@@ -19,12 +18,21 @@ interface AISolverResponse {
   }[];
 }
 
+/** Solver が必要とする課題の最小形（StructuredProblem / Problem どちらも受けられる） */
+type SolverProblem = {
+  id?: string;
+  context: string;
+  symptoms: string;
+  constraints: string;
+  goal: string;
+};
+
 /**
  * Solver Agent
  * 構造化された課題に対して具体的な解決策（Action）を提案します
  */
 export async function proposeActions(
-  problem: Problem, 
+  problem: SolverProblem,
   activitySummary?: { visitCount: number, previousClicks: number }
 ): Promise<ProposedAction[]> {
   const activityContext = activitySummary 

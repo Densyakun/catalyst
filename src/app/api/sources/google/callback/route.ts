@@ -22,12 +22,10 @@ export async function GET(req: NextRequest) {
       .upsert({
         user_id: userId,
         provider: 'google',
-        access_token: tokens.access_token || '',
-        refresh_token: tokens.refresh_token || null,
-        expires_at: tokens.expiry_date
-          ? new Date(tokens.expiry_date).toISOString()
-          : null,
-        scopes: tokens.scope?.split(' ') || [],
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: tokens.expires_at,
+        scopes: tokens.scopes,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,provider' });
 

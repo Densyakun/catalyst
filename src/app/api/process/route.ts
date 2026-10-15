@@ -15,7 +15,17 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Intake & Structuring
-    const structuredProblem = await structureProblem(input);
+    const structuredProblems = await structureProblem([
+      { question: '課題', answer: String(input) },
+    ]);
+    const structuredProblem = structuredProblems[0];
+
+    if (!structuredProblem) {
+      return NextResponse.json(
+        { error: '課題を構造化できませんでした' },
+        { status: 422 },
+      );
+    }
 
     // 2. Solving
     const actions = await proposeActions(structuredProblem);
@@ -31,9 +41,9 @@ export async function POST(req: NextRequest) {
         goal: structuredProblem.goal,
         severity: structuredProblem.severity,
         frequency: structuredProblem.frequency,
-        priority: structuredProblem.priority,
-        status: structuredProblem.status,
-        tags: structuredProblem.tags
+        priority: structuredProblem.priority_score,
+        status: structuredProblem.status ?? 'unsolved',
+        tags: structuredProblem.tags,
       }])
       .select()
       .single();
@@ -62,8 +72,9 @@ export async function POST(req: NextRequest) {
       problem: problemData,
       actions: actions,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('Processing error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

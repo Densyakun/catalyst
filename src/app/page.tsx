@@ -8,6 +8,11 @@ import InsightsPanel from '@/components/InsightsPanel';
 import ChatPanel from '@/components/ChatPanel';
 import ResourcesPanel from '@/components/ResourcesPanel';
 import ProjectsPanel from '@/components/ProjectsPanel';
+import EvolutionPanel from '@/components/EvolutionPanel';
+import DynamicUISlot from '@/components/DynamicUISlot';
+import NotificationsBell from '@/components/NotificationsBell';
+import APITokensPanel from '@/components/APITokensPanel';
+import MCPSetupPanel from '@/components/MCPSetupPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { EditingInsight } from '@/components/ChatPanel';
 import { Zap, Target, History, Sparkles, ExternalLink, MessageCircleWarning, ArrowLeft, LogOut, User, CheckCircle2, ChevronRight, MessageSquare, Loader2 } from 'lucide-react';
@@ -178,6 +183,7 @@ export default function Home() {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.3rem 0.8rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+          <NotificationsBell />
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <User size={14} className="text-accent" />
             <span style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>{username}</span>
@@ -201,30 +207,32 @@ export default function Home() {
           <AnimatePresence mode="wait">
             {!result ? (
               <>
-                {clusters.length > 0 && (
-                  <div style={{ marginBottom: '0.8rem' }}>
-                    <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>共有されている課題</p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {clusters.map(c => (
-                        <div key={c.id} className="glass-panel" style={{ padding: '0.8rem' }}>
-                          <h4 style={{ fontSize: '0.85rem', marginBottom: '0.3rem', color: 'var(--accent-color)' }}>{c.title}</h4>
-                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{c.description}</p>
-                          {c.dynamic_ui && (
-                            <button 
-                              className="btn-primary" 
-                              style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                              onClick={() => alert(`${c.dynamic_ui.actionLabel} 機能は現在AIが構築中です...`)}
-                            >
-                              {c.dynamic_ui.type === 'data_gathering' && <Zap size={12} />}
-                              {c.dynamic_ui.type === 'petition' && <CheckCircle2 size={12} />}
-                              {c.dynamic_ui.actionLabel}
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                <DynamicUISlot area="dashboard_focus">
+                  {clusters.length > 0 && (
+                    <div style={{ marginBottom: '0.8rem' }}>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>共有されている課題</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {clusters.map(c => (
+                          <div key={c.id} className="glass-panel" style={{ padding: '0.8rem' }}>
+                            <h4 style={{ fontSize: '0.85rem', marginBottom: '0.3rem', color: 'var(--accent-color)' }}>{c.title}</h4>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{c.description}</p>
+                            {c.dynamic_ui && (
+                              <button 
+                                className="btn-primary" 
+                                style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                                onClick={() => alert(`${c.dynamic_ui.actionLabel} 機能は現在AIが構築中です...`)}
+                              >
+                                {c.dynamic_ui.type === 'data_gathering' && <Zap size={12} />}
+                                {c.dynamic_ui.type === 'petition' && <CheckCircle2 size={12} />}
+                                {c.dynamic_ui.actionLabel}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </DynamicUISlot>
                 {/* 左列: チャット + リソース */}
                 <ChatPanel
                   editingInsight={editingInsight}
@@ -357,6 +365,15 @@ export default function Home() {
         {!(result || executionResult) && (
           <div>
             <ProjectsPanel />
+            <div style={{ marginTop: '0.8rem' }}>
+              <EvolutionPanel />
+            </div>
+            <div style={{ marginTop: '0.8rem' }}>
+              <APITokensPanel />
+            </div>
+            <div style={{ marginTop: '0.8rem' }}>
+              <MCPSetupPanel />
+            </div>
             <aside className="glass-panel" style={{ padding: '0.8rem', marginTop: '0.8rem' }}>
               <h3 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><History size={14} /> 診断履歴</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>

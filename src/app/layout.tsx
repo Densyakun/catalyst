@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { Suspense } from "react";
 import { ActivityTracker } from "@/components/ActivityTracker";
+import FeedbackWidget from "@/components/FeedbackWidget";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -24,6 +25,7 @@ export default function RootLayout({
           <ActivityTracker />
         </Suspense>
         {children}
+        <FeedbackWidget />
       </body>
     </html>
   );

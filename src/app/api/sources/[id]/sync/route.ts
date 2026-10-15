@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { getAuthClientForUser } from '@/lib/google/oauth';
+import { getGoogleAccessToken } from '@/lib/google/oauth';
 import { fetchDocContent, writeDocContent } from '@/lib/google/docs';
 import { extractIntents, generateMemoRewrite, estimateInsightCost } from '@/lib/ai/agents/proactive';
 import { createHash } from 'crypto';
@@ -30,17 +30,20 @@ export async function POST(
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    const authResult = await getAuthClientForUser(supabase, user.id);
+    const authResult = await getGoogleAccessToken(supabase, user.id);
     if (authResult.error === 'not_connected') {
       return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
     if (authResult.error === 're_auth_required') {
       return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
     }
-    const auth = authResult.auth;
+    const accessToken = authResult.accessToken;
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
+    }
 
     const config = source.source_config as { doc_id: string };
-    const { title, content } = await fetchDocContent(auth, config.doc_id);
+    const { title, content } = await fetchDocContent(accessToken, config.doc_id);
 
     // 変更検出
     const contentHash = createHash('sha256').update(content).digest('hex');
@@ -191,17 +194,20 @@ export async function PUT(
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    const authResult = await getAuthClientForUser(supabase, user.id);
+    const authResult = await getGoogleAccessToken(supabase, user.id);
     if (authResult.error === 'not_connected') {
       return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
     }
     if (authResult.error === 're_auth_required') {
       return NextResponse.json({ error: 're_auth_required' }, { status: 401 });
     }
-    const auth = authResult.auth;
+    const accessToken = authResult.accessToken;
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
+    }
 
     const config = source.source_config as { doc_id: string };
-    await writeDocContent(auth, config.doc_id, new_content);
+    await writeDocContent(accessToken, config.doc_id, new_content);
 
     // インサイトのステータスを更新
     if (insight_id) {

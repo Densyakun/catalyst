@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { getAuthClientForUser } from '@/lib/google/oauth';
+import { getGoogleAccessToken } from '@/lib/google/oauth';
 import { listDocs } from '@/lib/google/docs';
 
 /**
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const authResult = await getAuthClientForUser(supabase, user.id);
+    const authResult = await getGoogleAccessToken(supabase, user.id);
     if (authResult.error === 'not_connected') {
       return NextResponse.json(
         { error: 'Google account not connected. Please connect first.' },
@@ -29,10 +29,13 @@ export async function GET(req: NextRequest) {
         { status: 401 },
       );
     }
-    const auth = authResult.auth;
+    const accessToken = authResult.accessToken;
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Google account not connected' }, { status: 400 });
+    }
 
     const query = req.nextUrl.searchParams.get('query') || undefined;
-    const docs = await listDocs(auth, query);
+    const docs = await listDocs(accessToken, query);
 
     // 読み込み済みのドキュメント情報を取得
     const { data: existingSources } = await supabase

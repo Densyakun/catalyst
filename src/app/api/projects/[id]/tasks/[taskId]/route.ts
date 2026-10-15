@@ -129,7 +129,7 @@ ${inputContext ? `【前タスクの結果】\n${inputContext}` : ''}
     // プロジェクトの実コストを更新
     const { data: allTasks } = await supabase
       .from('project_tasks')
-      .select('actual_cost, status')
+      .select('actual_cost, status, execution_type')
       .eq('project_id', projectId);
 
     const totalActualCost = (allTasks || []).reduce(
