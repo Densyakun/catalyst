@@ -1,20 +1,37 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 /**
  * Catalyst エージェント用 MCP サーバー（stdio）。
+ * 既存の REST エージェントAPI (/api/agent/*) をMCPツールとして公開する。
  *
- * 既存の REST エージェントAPI (/api/agent/*) を MCP ツールとして公開する。
- * エージェント（opencode 等）はこれを通じて Catalyst のデータを読み書きできる。
- *
- * 必要な環境変数:
- *   CATALYST_BASE_URL  Catalyst のURL（既定: http://localhost:3000）
+ * 環境変数（または設定ファイル）:
+ *   CATALYST_BASE_URL  Catalyst のURL（既定 http://localhost:3000）
  *   CATALYST_TOKEN     Catalyst のユーザーAPIトークン（cat_...）
+ *   CATALYST_MCP_CONFIG 設定ファイルのパス（省略時 ~/.config/opencode/catalyst-mcp.json）
  */
 
-const BASE = (process.env.CATALYST_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const TOKEN = process.env.CATALYST_TOKEN || '';
+function loadConfig() {
+  const configPath =
+    process.env.CATALYST_MCP_CONFIG ||
+    path.join(os.homedir(), '.config', 'opencode', 'catalyst-mcp.json');
+  let fileConfig = {};
+  try {
+    fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch {
+    // 設定ファイルは任意
+  }
+  const baseUrl = process.env.CATALYST_BASE_URL || fileConfig.baseUrl || fileConfig.base_url || 'http://localhost:3000';
+  const token = process.env.CATALYST_TOKEN || fileConfig.token || '';
+  return { baseUrl: String(baseUrl).replace(/\/$/, ''), token };
+}
+
+const { baseUrl: BASE, token: TOKEN } = loadConfig();
 
 async function api(path, options = {}) {
   const res = await fetch(BASE + path, {
@@ -43,14 +60,14 @@ const TOOLS = [
   {
     name: 'list_proposals',
     description:
-      'Catalyst の改善提案を取得する。Issue化すべき提案（既定: approved）や、実装中の提案を一覧できる。',
+      'Catalyst の改善提案を取得する。Issue化すべき提案（既に approved など）や、実装済みの提案を一覧できる。',
     inputSchema: {
       type: 'object',
       properties: {
         status: {
           type: 'string',
           enum: ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'],
-          description: '絞り込むステータス（既定: approved）',
+          description: '絞り込むステータス（既定 approved）',
         },
       },
       required: [],
@@ -59,7 +76,7 @@ const TOOLS = [
   {
     name: 'get_proposal_context',
     description:
-      '提案1件と、その根拠となる Catalyst データ（ユーザーの不満・欲求・課題・統計）を取得する。Issue本文の作成に使う。',
+      '提案1件と、その根拠となるCatalystデータ（ユーザーの不満・欲求・課題・統計）を取得する。Issue本文の作成に使う。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,22 +95,152 @@ const TOOLS = [
         proposal_id: { type: 'string' },
         state: {
           type: 'string',
-          description: 'GitHub側の状態（open / merged / closed など）。ステータスへ自動マップされる。',
+          description: 'GitHub側の状態（open / merged / closed など）。ステータスへ自動マッピングされる。',
         },
         issue_number: { type: 'number' },
         issue_url: { type: 'string' },
         repo: { type: 'string', description: 'owner/repo' },
         pr_url: { type: 'string' },
         summary: { type: 'string', description: 'ユーザー向けの報告文' },
-        notify: { type: 'boolean', description: 'ユーザーへ通知するか（既定: true）' },
+        notify: { type: 'boolean', description: 'ユーザーへ通知するか（既定 true）' },
       },
       required: ['proposal_id'],
+    },
+  },
+  {
+    name: 'list_problems',
+    description: 'Catalyst の課題（problems）を一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'unsolved / solved などで絞り込む' },
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_problem',
+    description: 'Catalyst に課題（problem）を登録する。構想・要望の移行に使う。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context: { type: 'string', description: '課題の文脈・概要' },
+        symptoms: { type: 'string', description: '発生している症状' },
+        constraints: { type: 'string', description: '制約条件' },
+        goal: { type: 'string', description: '達成したいゴール' },
+        severity: { type: 'number', description: '深刻度 1-10' },
+        frequency: { type: 'string', description: '発生頻度' },
+        priority: { type: 'number', description: '優先度' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'タグ' },
+        status: { type: 'string', description: 'unsolved / solved（既定 unsolved）' },
+      },
+      required: ['context'],
+    },
+  },
+  {
+    name: 'list_projects',
+    description: 'Catalyst のプロジェクトを一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        with_tasks: { type: 'boolean', description: 'タスクも含める' },
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_project',
+    description: 'Catalyst にプロジェクトとタスクを作成する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'プロジェクト名' },
+        description: { type: 'string', description: '説明' },
+        is_social: { type: 'boolean', description: '社会課題か' },
+        estimated_beneficiaries: { type: 'number', description: '想定受益者数' },
+        status: { type: 'string', enum: ['planning', 'in_progress', 'completed', 'on_hold'] },
+        tasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string' },
+              estimated_cost: { type: 'number' },
+              execution_type: { type: 'string', enum: ['auto', 'user', 'hybrid'] },
+              depends_on_indices: {
+                type: 'array',
+                items: { type: 'number' },
+                description: '依存するタスクの配列インデックス',
+              },
+              sort_order: { type: 'number' },
+              status: {
+                type: 'string',
+                enum: ['pending', 'ready', 'in_progress', 'completed', 'blocked'],
+              },
+            },
+            required: ['title'],
+          },
+        },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'list_resources',
+    description: 'Catalyst のユーザーリソースを一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_resource',
+    description: 'Catalyst にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resource_type: {
+          type: 'string',
+          enum: ['time', 'money', 'skill', 'tool', 'connection'],
+        },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        metadata: { type: 'object', description: '任意のメタデータ' },
+      },
+      required: ['resource_type', 'name'],
+    },
+  },
+  {
+    name: 'create_proposal',
+    description: 'Catalyst に改善提案（evolution_proposals）を登録する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        category: { type: 'string', enum: ['feature', 'ux', 'bug', 'performance', 'content'] },
+        rationale: { type: 'string', description: '提案の根拠' },
+        target_area: { type: 'string', description: '対象画面・機能' },
+        proposed_change: { type: 'string', description: '具体的な変更内容' },
+        priority: { type: 'number', description: '0-1' },
+        evidence: { type: 'array', items: { type: 'string' } },
+        status: {
+          type: 'string',
+          enum: ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'],
+        },
+      },
+      required: ['title', 'rationale'],
     },
   },
 ];
 
 const server = new Server(
-  { name: 'catalyst', version: '1.0.0' },
+  { name: 'catalyst', version: '1.1.0' },
   { capabilities: { tools: {} } },
 );
 
@@ -106,7 +253,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     let result;
     if (name === 'list_proposals') {
       const status = args.status || 'approved';
-      result = await api(`/api/agent/context?status=${encodeURIComponent(status)}`);
+      result = await api(`/api/agent/proposals?status=${encodeURIComponent(status)}`);
     } else if (name === 'get_proposal_context') {
       result = await api(`/api/agent/context?proposal_id=${encodeURIComponent(args.proposal_id)}`);
     } else if (name === 'report_result') {
@@ -114,6 +261,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         method: 'POST',
         body: JSON.stringify(args),
       });
+    } else if (name === 'list_problems') {
+      const params = new URLSearchParams();
+      if (args.status) params.set('status', String(args.status));
+      if (args.limit) params.set('limit', String(args.limit));
+      result = await api(`/api/agent/problems?${params.toString()}`);
+    } else if (name === 'create_problem') {
+      result = await api('/api/agent/problems', { method: 'POST', body: JSON.stringify(args) });
+    } else if (name === 'list_projects') {
+      const params = new URLSearchParams();
+      if (args.with_tasks) params.set('with_tasks', '1');
+      if (args.limit) params.set('limit', String(args.limit));
+      result = await api(`/api/agent/projects?${params.toString()}`);
+    } else if (name === 'create_project') {
+      result = await api('/api/agent/projects', { method: 'POST', body: JSON.stringify(args) });
+    } else if (name === 'list_resources') {
+      const params = new URLSearchParams();
+      if (args.limit) params.set('limit', String(args.limit));
+      result = await api(`/api/agent/resources?${params.toString()}`);
+    } else if (name === 'create_resource') {
+      result = await api('/api/agent/resources', { method: 'POST', body: JSON.stringify(args) });
+    } else if (name === 'create_proposal') {
+      result = await api('/api/agent/proposals', { method: 'POST', body: JSON.stringify(args) });
     } else {
       return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
     }

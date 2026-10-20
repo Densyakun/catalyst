@@ -4,7 +4,22 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveAgentAuth } from '@/lib/agent-auth';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { listProposals, getProposalContext, reportResult } from '@/lib/agent-tools';
+import {
+  listProposals,
+  getProposalContext,
+  reportResult,
+  listProblems,
+  createProblem,
+  listProjects,
+  createProject,
+  listResources,
+  createResource,
+  createProposal,
+  type CreateProblemInput,
+  type CreateProjectInput,
+  type CreateProposalInput,
+  type CreateResourceInput,
+} from '@/lib/agent-tools';
 import type { AgentReportRequest, ProposalStatus } from '@/lib/types/evolution';
 
 export const runtime = 'nodejs';
@@ -62,6 +77,136 @@ const TOOLS = [
       required: ['proposal_id'],
     },
   },
+  {
+    name: 'list_problems',
+    description: 'Catalyst の課題（problems）を一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'unsolved / solved などで絞り込む' },
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_problem',
+    description: 'Catalyst に課題（problem）を登録する。構想・要望の移行に使う。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context: { type: 'string', description: '課題の文脈・概要' },
+        symptoms: { type: 'string', description: '発生している症状' },
+        constraints: { type: 'string', description: '制約条件' },
+        goal: { type: 'string', description: '達成したいゴール' },
+        severity: { type: 'number', description: '深刻度 1-10' },
+        frequency: { type: 'string', description: '発生頻度' },
+        priority: { type: 'number', description: '優先度' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'タグ' },
+        status: { type: 'string', description: 'unsolved / solved（既定 unsolved）' },
+      },
+      required: ['context'],
+    },
+  },
+  {
+    name: 'list_projects',
+    description: 'Catalyst のプロジェクトを一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        with_tasks: { type: 'boolean', description: 'タスクも含める' },
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_project',
+    description: 'Catalyst にプロジェクトとタスクを作成する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'プロジェクト名' },
+        description: { type: 'string', description: '説明' },
+        is_social: { type: 'boolean', description: '社会課題か' },
+        estimated_beneficiaries: { type: 'number', description: '想定受益者数' },
+        status: { type: 'string', enum: ['planning', 'in_progress', 'completed', 'on_hold'] },
+        tasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string' },
+              estimated_cost: { type: 'number' },
+              execution_type: { type: 'string', enum: ['auto', 'user', 'hybrid'] },
+              depends_on_indices: {
+                type: 'array',
+                items: { type: 'number' },
+                description: '依存するタスクの配列インデックス',
+              },
+              sort_order: { type: 'number' },
+              status: {
+                type: 'string',
+                enum: ['pending', 'ready', 'in_progress', 'completed', 'blocked'],
+              },
+            },
+            required: ['title'],
+          },
+        },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'list_resources',
+    description: 'Catalyst のユーザーリソースを一覧する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '取得件数（既定50、最大200）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_resource',
+    description: 'Catalyst にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resource_type: {
+          type: 'string',
+          enum: ['time', 'money', 'skill', 'tool', 'connection'],
+        },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        metadata: { type: 'object', description: '任意のメタデータ' },
+      },
+      required: ['resource_type', 'name'],
+    },
+  },
+  {
+    name: 'create_proposal',
+    description: 'Catalyst に改善提案（evolution_proposals）を登録する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        category: { type: 'string', enum: ['feature', 'ux', 'bug', 'performance', 'content'] },
+        rationale: { type: 'string', description: '提案の根拠' },
+        target_area: { type: 'string', description: '対象画面・機能' },
+        proposed_change: { type: 'string', description: '具体的な変更内容' },
+        priority: { type: 'number', description: '0-1' },
+        evidence: { type: 'array', items: { type: 'string' } },
+        status: {
+          type: 'string',
+          enum: ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'],
+        },
+      },
+      required: ['title', 'rationale'],
+    },
+  },
 ];
 
 function buildServer(userId: string, supabase: SupabaseClient): Server {
@@ -84,6 +229,32 @@ function buildServer(userId: string, supabase: SupabaseClient): Server {
         result = await getProposalContext(supabase, userId, String(args.proposal_id));
       } else if (name === 'report_result') {
         result = await reportResult(supabase, userId, args as unknown as AgentReportRequest);
+      } else if (name === 'list_problems') {
+        result = {
+          problems: await listProblems(supabase, userId, {
+            status: args.status as string | undefined,
+            limit: args.limit as number | undefined,
+          }),
+        };
+      } else if (name === 'create_problem') {
+        result = { ok: true, problem: await createProblem(supabase, userId, args as unknown as CreateProblemInput) };
+      } else if (name === 'list_projects') {
+        result = {
+          projects: await listProjects(supabase, userId, {
+            withTasks: args.with_tasks === true,
+            limit: args.limit as number | undefined,
+          }),
+        };
+      } else if (name === 'create_project') {
+        result = { ok: true, project: await createProject(supabase, userId, args as unknown as CreateProjectInput) };
+      } else if (name === 'list_resources') {
+        result = {
+          resources: await listResources(supabase, userId, { limit: args.limit as number | undefined }),
+        };
+      } else if (name === 'create_resource') {
+        result = { ok: true, resource: await createResource(supabase, userId, args as unknown as CreateResourceInput) };
+      } else if (name === 'create_proposal') {
+        result = { ok: true, proposal: await createProposal(supabase, userId, args as unknown as CreateProposalInput) };
       } else {
         return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
       }
