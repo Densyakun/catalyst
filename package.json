@@ -16,7 +16,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@opennextjs/cloudflare": "^1.20.11",
+    "@opennextjs/cloudflare": "^1.20.12",
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
     "@supabase/ssr": "^0.10.2",
