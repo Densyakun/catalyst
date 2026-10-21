@@ -192,3 +192,130 @@ button {
 .ev-btn { padding: 0.4rem 0.9rem !important; font-size: 0.75rem !important; margin-top: 0.5rem; display: inline-block; text-decoration: none; }
 .ev-list { margin: 0.4rem 0 0 1rem; font-size: 0.78rem; color: var(--text-secondary); }
 .ev-note { font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8; margin-top: 0.4rem; }
+
+/* ============================================================
+   モバイル対応（一覧・通知・ヘッダーのはみ出し防止）
+   ============================================================ */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overflow-wrap: break-word;
+}
+
+img,
+svg,
+video,
+canvas,
+iframe {
+  max-width: 100%;
+}
+
+pre,
+code {
+  max-width: 100%;
+}
+
+.glass-panel,
+.main-grid,
+.main-grid > * {
+  min-width: 0;
+}
+
+.main-grid {
+  width: 100%;
+}
+
+.app-username {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notifications-panel {
+  position: absolute;
+  right: 0;
+  top: 130%;
+  width: min(320px, calc(100vw - 2rem));
+  max-width: calc(100vw - 1rem);
+  background: rgba(15, 15, 20, 0.98);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 0.6rem;
+  z-index: 70;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.notification-item {
+  text-align: left;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.notification-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.6rem !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 0.5rem;
+  }
+
+  .glass-panel {
+    padding: 0.65rem;
+    border-radius: 10px;
+  }
+
+  .app-header {
+    align-items: flex-start !important;
+  }
+
+  .app-userbar {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .app-username {
+    max-width: 110px;
+  }
+
+  .notifications-panel {
+    position: fixed !important;
+    top: 3.5rem !important;
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
+  }
+}
+
+.dynamic-ui-slot {
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .intake-resume-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

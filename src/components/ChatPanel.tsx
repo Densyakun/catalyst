@@ -433,6 +433,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
           disabled={sending}
           style={{
             flex: 1,
+            minWidth: 0,
             padding: '0.4rem 0.6rem',
             background: 'rgba(255,255,255,0.05)',
             border: '1px solid var(--glass-border)',

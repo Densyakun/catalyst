@@ -65,7 +65,7 @@ export default function NotificationsBell() {
       </button>
 
       {open && (
-        <div style={{ position: 'absolute', right: 0, top: '130%', width: 'min(320px, calc(100vw - 2rem))', background: 'rgba(15,15,20,0.98)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '0.6rem', zIndex: 70, boxShadow: '0 16px 48px rgba(0,0,0,0.6)' }}>
+        <div className="notifications-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
             <strong style={{ fontSize: '0.78rem' }}>通知</strong>
             {unread > 0 && (
@@ -83,12 +83,14 @@ export default function NotificationsBell() {
                 <button
                   key={n.id}
                   onClick={() => markRead(n.id)}
-                  style={{ textAlign: 'left', background: n.is_read ? 'rgba(255,255,255,0.02)' : 'rgba(59,130,246,0.1)', border: '1px solid var(--glass-border)', borderRadius: '8px', padding: '0.45rem', width: '100%' }}
+                  className="notification-item"
+                  style={{ background: n.is_read ? 'rgba(255,255,255,0.02)' : 'rgba(59,130,246,0.1)' }}
                 >
-                  <p style={{ fontSize: '0.72rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <Sparkles size={11} className="text-accent" /> {n.title}
+                  <p className="notification-title" style={{ fontSize: '0.72rem', fontWeight: 600 }}>
+                    <Sparkles size={11} className="text-accent" style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+                    <span style={{ minWidth: 0 }}>{n.title}</span>
                   </p>
-                  {n.body && <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.2rem', lineHeight: 1.4 }}>{n.body}</p>}
+                  {n.body && <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.2rem', lineHeight: 1.4, overflowWrap: 'anywhere' }}>{n.body}</p>}
                   <span style={{ fontSize: '0.58rem', color: 'var(--text-secondary)', opacity: 0.7 }}>{new Date(n.created_at).toLocaleString()}</span>
                 </button>
               ))}

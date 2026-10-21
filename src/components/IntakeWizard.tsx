@@ -202,7 +202,7 @@ export default function IntakeWizard({ onResult }: IntakeWizardProps) {
           {resumePrompt.answers?.length || 0} 回答済み • {new Date(resumePrompt.updated_at).toLocaleDateString('ja-JP')}
         </p>
         
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div className="intake-resume-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
           <button onClick={() => handleResume(resumePrompt)} className="btn-primary" style={{ padding: '1rem' }}>
             <Play size={18} style={{ marginRight: '0.5rem' }} /> 再開する
           </button>

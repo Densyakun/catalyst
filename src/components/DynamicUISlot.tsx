@@ -37,7 +37,7 @@ export default function DynamicUISlot({ area, children }: { area: string; childr
 
   if (element) {
     return (
-      <div onClickCapture={() => void trackEvent('ui_variant_click', { area })}>
+      <div className="dynamic-ui-slot" onClickCapture={() => void trackEvent('ui_variant_click', { area })}>
         {element}
       </div>
     );

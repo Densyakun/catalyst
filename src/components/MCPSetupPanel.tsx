@@ -72,7 +72,7 @@ Catalyst の MCP ツール（list_proposals / get_proposal_context / report_resu
               {copied === 'config' ? <Check size={11} /> : <Copy size={11} />} コピー
             </button>
           </div>
-          <pre style={{ fontSize: '0.62rem', background: 'rgba(0,0,0,0.35)', padding: '0.5rem', borderRadius: '8px', overflowX: 'auto', whiteSpace: 'pre' }}>{configSnippet}</pre>
+          <pre style={{ fontSize: '0.62rem', background: 'rgba(0,0,0,0.35)', padding: '0.5rem', borderRadius: '8px', overflowX: 'auto', whiteSpace: 'pre', maxWidth: '100%' }}>{configSnippet}</pre>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0.6rem 0 0.25rem' }}>
             <span style={{ fontSize: '0.68rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -82,7 +82,7 @@ Catalyst の MCP ツール（list_proposals / get_proposal_context / report_resu
               {copied === 'prompt' ? <Check size={11} /> : <Copy size={11} />} コピー
             </button>
           </div>
-          <pre style={{ fontSize: '0.62rem', background: 'rgba(0,0,0,0.35)', padding: '0.5rem', borderRadius: '8px', overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: '180px', overflowY: 'auto' }}>{promptSnippet}</pre>
+          <pre style={{ fontSize: '0.62rem', background: 'rgba(0,0,0,0.35)', padding: '0.5rem', borderRadius: '8px', overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: '180px', overflowY: 'auto', maxWidth: '100%' }}>{promptSnippet}</pre>
 
           <p style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '0.5rem', opacity: 0.8 }}>
             セルフホストの場合はローカルMCP（<code>node scripts/catalyst-mcp.mjs</code>）でも接続できます。

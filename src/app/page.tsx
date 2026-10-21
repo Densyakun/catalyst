@@ -164,29 +164,29 @@ export default function Home() {
   return (
     <main className="container" style={{ paddingBottom: '1rem' }}>
       {isAnonymous && (
-        <div style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid var(--accent-color)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="anon-banner" style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid var(--accent-color)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem' }}>
             <Sparkles className="text-accent" size={20} />
             <p style={{ fontSize: '0.9rem' }}>現在は匿名モードです。他のデバイスからも履歴を確認できるようにアカウントを連携しませんか？</p>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button onClick={() => handleLinkAccount('google')} className="btn-primary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}>Google 連携</button>
             <button onClick={() => handleLinkAccount('github')} style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white' }}>GitHub 連携</button>
           </div>
         </div>
       )}
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.5rem' }}>
+      <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.5rem', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.8rem' }}>
           <h1 className="text-gradient" style={{ fontSize: '1.8rem', margin: 0 }}>Catalyst</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: 0 }}>課題解決AI</p>
         </div>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.3rem 0.8rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+        <div className="app-userbar" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.3rem 0.8rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--glass-border)', maxWidth: '100%' }}>
           <NotificationsBell />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <User size={14} className="text-accent" />
-            <span style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>{username}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+            <User size={14} className="text-accent" style={{ flexShrink: 0 }} />
+            <span className="app-username" style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>{username}</span>
           </div>
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem' }}>
             <LogOut size={14} /> ログアウト
@@ -196,12 +196,13 @@ export default function Home() {
 
       <div className="main-grid" style={{ 
         display: 'grid', 
-        gridTemplateColumns: (result || executionResult) ? '1fr' : '1fr 1fr 1fr', 
+        gridTemplateColumns: (result || executionResult) ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', 
         gap: '0.8rem', 
         maxWidth: '1400px', 
         margin: '0 auto',
         alignItems: 'start',
         minHeight: 0,
+        minWidth: 0,
       }}>
         <div style={{ position: 'relative' }}>
           <AnimatePresence mode="wait">
@@ -249,7 +250,7 @@ export default function Home() {
                 </div>
               </>
             ) : executionResult ? (
-              <motion.div key="execution" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-panel" style={{ padding: '2.5rem' }}>
+              <motion.div key="execution" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-panel" style={{ padding: 'clamp(1rem, 4vw, 2.5rem)' }}>
                 <button onClick={() => setExecutionResult(null)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: '2rem' }}>
                   <ArrowLeft size={18} /> アクション一覧に戻る
                 </button>
@@ -272,9 +273,9 @@ export default function Home() {
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}><CheckCircle2 className="text-accent" /> 次にとるべきステップ</h3>
                   <div style={{ display: 'grid', gap: '0.8rem' }}>
                     {executionResult?.next_steps?.map((step: string, i: number) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
-                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{i + 1}</div>
-                        <p>{step}</p>
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
+                        <div style={{ width: '24px', height: '24px', flexShrink: 0, borderRadius: '50%', background: 'var(--accent-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{i + 1}</div>
+                        <p style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{step}</p>
                       </div>
                     )) || <p>次のステップを生成中...</p>}
                   </div>
@@ -282,15 +283,15 @@ export default function Home() {
 
                 <div style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid var(--glass-border)' }}>
                   <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}><MessageSquare size={18} /> AIにさらに詳しく聞く</h4>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input type="text" placeholder="例: 具体的な価格を教えて、自分に合うか相談したい..." style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white' }} />
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <input type="text" placeholder="例: 具体的な価格を教えて、自分に合うか相談したい..." style={{ flex: 1, minWidth: '200px', padding: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white' }} />
                     <button className="btn-primary" style={{ padding: '12px' }}>送信</button>
                   </div>
                 </div>
               </motion.div>
             ) : (
-              <motion.div key="result" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="glass-panel" style={{ padding: '2.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+              <motion.div key="result" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="glass-panel" style={{ padding: 'clamp(1rem, 4vw, 2.5rem)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '0.6rem' }}>
                   <button onClick={handleNewDiagnosis} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                     <ArrowLeft size={18} /> 他の課題を診断する
                   </button>
@@ -332,9 +333,9 @@ export default function Home() {
                               handleExecute(action, res.problem);
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <h4 style={{ fontSize: '1.1rem' }}>{action.description}</h4>
-                              <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                              <h4 style={{ fontSize: '1.1rem', minWidth: 0, overflowWrap: 'anywhere' }}>{action.description}</h4>
+                              <ChevronRight size={20} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
                             </div>
                             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{action.reason}</p>
                           </motion.div>
@@ -380,8 +381,8 @@ export default function Home() {
                 {isLoadingHistory ? (
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>読み込み中...</p>
                 ) : history.length > 0 ? history.slice(0, 3).map((item) => (
-                  <button key={item.id} onClick={() => handleSelectHistory(item)} className="history-item" style={{ textAlign: 'left', padding: '0.5rem 0.6rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
-                    <p style={{ fontSize: '0.75rem', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{item.context}</p>
+                  <button key={item.id} onClick={() => handleSelectHistory(item)} className="history-item" style={{ textAlign: 'left', padding: '0.5rem 0.6rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', maxWidth: '100%', minWidth: 0 }}>
+                    <p style={{ fontSize: '0.75rem', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, maxWidth: '100%' }}>{item.context}</p>
                     <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
                   </button>
                 )) : (

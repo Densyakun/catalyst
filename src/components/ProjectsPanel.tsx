@@ -251,6 +251,8 @@ export default function ProjectsPanel() {
                         color: 'var(--text-secondary)',
                         display: 'flex',
                         justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '0.25rem',
                       }}>
                         <span>推定コスト: ¥{Number(project.total_estimated_cost).toLocaleString()}</span>
                         <span>実コスト: ¥{Number(project.total_actual_cost).toLocaleString()}</span>

@@ -175,7 +175,7 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
           {pending.map((p) => (
             <div key={p.id} className="evolution-proposal">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.4rem' }}>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <span className="evolution-cat">{CATEGORY_LABEL[p.category] || p.category}</span>
                   <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginLeft: '0.4rem' }}>
                     {STATUS_LABEL[p.status]} ・ 優先度 {Math.round((p.priority || 0) * 100)}
@@ -245,7 +245,7 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.4rem' }}>
             {variants.slice(0, 4).map((v) => (
               <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                   {v.name} {v.status === 'active' ? '（適用中）' : ''}
                 </span>
                 {v.status === 'active' ? (

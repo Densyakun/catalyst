@@ -109,7 +109,7 @@ export default function APITokensPanel() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="名前（例: mcp-agent）"
-          style={{ flex: 1, padding: '0.4rem 0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', fontSize: '0.72rem' }}
+          style={{ flex: 1, minWidth: 0, padding: '0.4rem 0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'white', fontSize: '0.72rem' }}
         />
         <button onClick={create} disabled={creating} className="btn-primary" style={{ padding: '0.4rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} 発行
@@ -121,8 +121,8 @@ export default function APITokensPanel() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           {active.map((t) => (
-            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', border: '1px solid var(--glass-border)', borderRadius: '8px', padding: '0.4rem 0.5rem' }}>
-              <div>
+            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem', fontSize: '0.7rem', border: '1px solid var(--glass-border)', borderRadius: '8px', padding: '0.4rem 0.5rem', minWidth: 0 }}>
+              <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                 <span style={{ fontWeight: 600 }}>{t.name}</span>
                 <span style={{ color: 'var(--text-secondary)', marginLeft: '0.4rem' }}>{t.token_prefix}…</span>
                 <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', opacity: 0.8 }}>

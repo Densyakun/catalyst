@@ -327,7 +327,7 @@ function InsightCard({
             {insight.title}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {insight.insight_type === 'detected_problem' && getUrgencyBadge(insight)}
           {insight.estimated_cost && (
             <span style={{
