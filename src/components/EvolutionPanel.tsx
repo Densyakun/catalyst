@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Dna, Sparkles, Trash2, RefreshCw, Download, Wand2, Check, X, Loader2, CircleCheck, FlaskConical, ExternalLink } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Dna, Sparkles, Trash2, RefreshCw, Download, Wand2, Check, X, Loader2, CircleCheck, FlaskConical, ExternalLink, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { EvolutionProposal, ProposalStatus, UIVariant } from '@/lib/types/evolution';
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -21,6 +21,16 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const DASHBOARD_AREA = 'dashboard_focus';
+const PAGE_SIZE = 5;
+
+type StatusFilter = 'pending' | 'implemented' | 'rejected' | 'all';
+
+const STATUS_TABS: { value: StatusFilter; label: string }[] = [
+  { value: 'pending', label: '進行中' },
+  { value: 'implemented', label: '実装済' },
+  { value: 'rejected', label: '却下' },
+  { value: 'all', label: 'すべて' },
+];
 
 /**
  * EvolutionPanel:
@@ -34,6 +44,10 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
   const [analyzing, setAnalyzing] = useState(false);
   const [genUI, setGenUI] = useState(false);
   const [summary, setSummary] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [page, setPage] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -141,8 +155,34 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
     }
   };
 
-  const pending = proposals.filter((p) => p.status === 'proposed' || p.status === 'approved' || p.status === 'in_progress');
-  const done = proposals.filter((p) => p.status === 'implemented' || p.status === 'rejected');
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return proposals.filter((p) => {
+      if (statusFilter === 'pending' && !['proposed', 'approved', 'in_progress'].includes(p.status)) return false;
+      if (statusFilter === 'implemented' && p.status !== 'implemented') return false;
+      if (statusFilter === 'rejected' && p.status !== 'rejected') return false;
+      if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
+      if (!q) return true;
+      const haystack = [p.title, p.rationale, p.proposed_change, p.target_area, ...(p.evidence || [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [proposals, statusFilter, categoryFilter, query]);
+
+  const pendingCount = proposals.filter((p) => ['proposed', 'approved', 'in_progress'].includes(p.status)).length;
+  const implementedCount = proposals.filter((p) => p.status === 'implemented').length;
+  const rejectedCount = proposals.filter((p) => p.status === 'rejected').length;
+
+  const maxPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
+  const currentPage = Math.min(page, maxPage);
+  const visible = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
+
+  const changeStatusFilter = (value: StatusFilter) => {
+    setStatusFilter(value);
+    setPage(0);
+  };
 
   return (
     <section className="glass-panel" style={{ padding: '0.8rem' }}>
@@ -164,15 +204,80 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
         <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.6rem', lineHeight: 1.5 }}>{summary}</p>
       )}
 
+      {!loading && proposals.length > 0 && (
+        <div style={{ marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.4rem' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search
+                size={11}
+                style={{ position: 'absolute', left: '0.45rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }}
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+                placeholder="提案を検索..."
+                aria-label="提案を検索"
+                style={{ width: '100%', padding: '0.35rem 0.4rem 0.35rem 1.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'white', fontSize: '0.7rem' }}
+              />
+            </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
+              aria-label="カテゴリで絞り込む"
+              style={{ maxWidth: '42%', padding: '0.35rem 0.3rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'white', fontSize: '0.68rem' }}
+            >
+              <option value="all">全カテゴリ</option>
+              {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+            {STATUS_TABS.map((tab) => {
+              const count =
+                tab.value === 'pending' ? pendingCount :
+                tab.value === 'implemented' ? implementedCount :
+                tab.value === 'rejected' ? rejectedCount :
+                proposals.length;
+              const active = statusFilter === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => changeStatusFilter(tab.value)}
+                  style={{
+                    padding: '0.2rem 0.45rem',
+                    fontSize: '0.62rem',
+                    borderRadius: '999px',
+                    background: active ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${active ? 'var(--accent-color)' : 'var(--glass-border)'}`,
+                    color: active ? 'white' : 'var(--text-secondary)',
+                  }}
+                >
+                  {tab.label} {count}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>
+            {filtered.length}件中 {filtered.length === 0 ? 0 : currentPage * PAGE_SIZE + 1}〜{Math.min(filtered.length, (currentPage + 1) * PAGE_SIZE)}件を表示
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>読み込み中...</p>
-      ) : pending.length === 0 ? (
+      ) : proposals.length === 0 ? (
         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
           提案はまだありません。「分析」でユーザーの声と操作データから改善案を生成します。
         </p>
+      ) : filtered.length === 0 ? (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          該当する提案がありません。検索条件を変更してください。
+        </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {pending.map((p) => (
+          {visible.map((p) => (
             <div key={p.id} className="evolution-proposal">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.4rem' }}>
                 <div style={{ minWidth: 0 }}>
@@ -207,28 +312,46 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
                   <ExternalLink size={10} /> Issue #{p.github_issue_number} を開く
                 </a>
               )}
-              <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                {p.status === 'proposed' && (
-                  <button onClick={() => updateStatus(p.id, 'approved')} style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--success-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                    <Check size={10} /> 承認
+              {p.status !== 'implemented' && p.status !== 'rejected' && (
+                <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                  {p.status === 'proposed' && (
+                    <button onClick={() => updateStatus(p.id, 'approved')} style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--success-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <Check size={10} /> 承認
+                    </button>
+                  )}
+                  <button onClick={() => updateStatus(p.id, 'implemented')} style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                    <CircleCheck size={10} /> 実装済
                   </button>
-                )}
-                <button onClick={() => updateStatus(p.id, 'implemented')} style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                  <CircleCheck size={10} /> 実装済
-                </button>
-                <button onClick={() => updateStatus(p.id, 'rejected')} style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                  <X size={10} /> 却下
-                </button>
-              </div>
+                  <button onClick={() => updateStatus(p.id, 'rejected')} style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                    <X size={10} /> 却下
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {done.length > 0 && (
-        <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.5rem', opacity: 0.7 }}>
-          完了/却下: {done.length}件
-        </p>
+      {filtered.length > PAGE_SIZE && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', gap: '0.3rem' }}>
+          <button
+            onClick={() => setPage(Math.max(0, currentPage - 1))}
+            disabled={currentPage === 0}
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: currentPage === 0 ? 'var(--text-secondary)' : 'white', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem', opacity: currentPage === 0 ? 0.5 : 1 }}
+          >
+            <ChevronLeft size={11} /> 前へ
+          </button>
+          <span style={{ fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
+            {currentPage + 1} / {maxPage + 1}
+          </span>
+          <button
+            onClick={() => setPage(Math.min(maxPage, currentPage + 1))}
+            disabled={currentPage >= maxPage}
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: currentPage >= maxPage ? 'var(--text-secondary)' : 'white', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem', opacity: currentPage >= maxPage ? 0.5 : 1 }}
+          >
+            次へ <ChevronRight size={11} />
+          </button>
+        </div>
       )}
 
       {/* 動的UI（tsx-safe-eval） */}
