@@ -26,11 +26,12 @@ export default function MCPSetupPanel() {
 }`;
 
   const promptSnippet = `あなたは私のローカルにある Catalyst のコードベース（現在のディレクトリ）を開発するエージェントです。
-Catalyst の MCP ツール（list_proposals / get_proposal_context / report_result）を使えます。
+Catalyst の MCP ツール（run_evolution_analysis / list_proposals / get_proposal_context / update_proposal_status / report_result）を使えます。
 
-1. list_proposals で承認済みの改善提案を取得し、一覧で見せてください。
-2. 私が選んだ提案について get_proposal_context で根拠と関連データを確認し、ローカルのコードを実装してください。
-3. 実装できたら report_result で state（例: in_progress / implemented）と summary を報告してください。
+1. run_evolution_analysis で自己進化の分析を実行してください。
+2. list_proposals で提案を取得し、優先度の高い順に一覧で見せてください。
+3. 私が選んだ提案について get_proposal_context で根拠と関連データを確認し、ローカルのコードを実装してください。
+4. 実装できたら report_result で state（例: in_progress / implemented）と summary を報告してください。
 
 まずは提案一覧を提示し、どれから着手するか私に確認してください。`;
 

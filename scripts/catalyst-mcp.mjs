@@ -237,6 +237,31 @@ const TOOLS = [
       required: ['title', 'rationale'],
     },
   },
+  {
+    name: 'run_evolution_analysis',
+    description:
+      'Catalyst の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'update_proposal_status',
+    description: '改善提案のステータスを更新する（承認・実装中・実装済・却下）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposal_id: { type: 'string', description: '改善提案のUUID' },
+        status: {
+          type: 'string',
+          enum: ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'],
+        },
+      },
+      required: ['proposal_id', 'status'],
+    },
+  },
 ];
 
 const server = new Server(
@@ -283,6 +308,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       result = await api('/api/agent/resources', { method: 'POST', body: JSON.stringify(args) });
     } else if (name === 'create_proposal') {
       result = await api('/api/agent/proposals', { method: 'POST', body: JSON.stringify(args) });
+    } else if (name === 'run_evolution_analysis') {
+      result = await api('/api/agent/evolution/analyze', { method: 'POST', body: JSON.stringify({}) });
+    } else if (name === 'update_proposal_status') {
+      result = await api(`/api/agent/proposals/${encodeURIComponent(args.proposal_id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: args.status }),
+      });
     } else {
       return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
     }

@@ -15,11 +15,13 @@ import {
   listResources,
   createResource,
   createProposal,
+  updateProposalStatus,
   type CreateProblemInput,
   type CreateProjectInput,
   type CreateProposalInput,
   type CreateResourceInput,
 } from '@/lib/agent-tools';
+import { runEvolutionAnalysis } from '@/lib/evolution/run';
 import type { AgentReportRequest, ProposalStatus } from '@/lib/types/evolution';
 
 export const runtime = 'nodejs';
@@ -207,6 +209,31 @@ const TOOLS = [
       required: ['title', 'rationale'],
     },
   },
+  {
+    name: 'run_evolution_analysis',
+    description:
+      'Catalyst の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'update_proposal_status',
+    description: '改善提案のステータスを更新する（承認・実装中・実装済・却下）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposal_id: { type: 'string', description: '改善提案のUUID' },
+        status: {
+          type: 'string',
+          enum: ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'],
+        },
+      },
+      required: ['proposal_id', 'status'],
+    },
+  },
 ];
 
 function buildServer(userId: string, supabase: SupabaseClient): Server {
@@ -255,6 +282,18 @@ function buildServer(userId: string, supabase: SupabaseClient): Server {
         result = { ok: true, resource: await createResource(supabase, userId, args as unknown as CreateResourceInput) };
       } else if (name === 'create_proposal') {
         result = { ok: true, proposal: await createProposal(supabase, userId, args as unknown as CreateProposalInput) };
+      } else if (name === 'run_evolution_analysis') {
+        result = await runEvolutionAnalysis(supabase, userId);
+      } else if (name === 'update_proposal_status') {
+        result = {
+          ok: true,
+          proposal: await updateProposalStatus(
+            supabase,
+            userId,
+            String(args.proposal_id),
+            args.status as ProposalStatus,
+          ),
+        };
       } else {
         return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
       }

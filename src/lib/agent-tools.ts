@@ -442,3 +442,24 @@ export async function createProposal(
   if (error) throw error;
   return data as Record<string, unknown>;
 }
+
+export async function updateProposalStatus(
+  supabase: SupabaseClient,
+  userId: string,
+  proposalId: string,
+  status: ProposalStatus,
+): Promise<Record<string, unknown>> {
+  const valid: ProposalStatus[] = ['proposed', 'approved', 'in_progress', 'implemented', 'rejected'];
+  if (!proposalId) throw new Error('proposal_id is required');
+  if (!valid.includes(status)) throw new Error(`Invalid status. Must be one of: ${valid.join(', ')}`);
+
+  const { data, error } = await supabase
+    .from('evolution_proposals')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', proposalId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Record<string, unknown>;
+}

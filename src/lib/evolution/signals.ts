@@ -17,6 +17,14 @@ export async function collectEvolutionSignals(
   const now = Date.now();
   const since = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+  // outcomes は user_id を持たないため、本人の actions に紐づくものだけに限定する
+  const { data: actionRows } = await supabase
+    .from('actions')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1000);
+  const actionIds = (actionRows || []).map((a: { id: string }) => a.id);
+
   const [feedbackRes, activityRes, problemsRes, insightsRes, outcomesRes, conversationsRes] =
     await Promise.all([
       supabase
@@ -47,6 +55,7 @@ export async function collectEvolutionSignals(
       supabase
         .from('outcomes')
         .select('satisfaction, complaint')
+        .in('action_id', actionIds)
         .lt('satisfaction', 3)
         .order('feedback_date', { ascending: false })
         .limit(20),
