@@ -77,7 +77,7 @@ export default function AuthUI() {
         <div style={{ display: 'inline-flex', padding: '0.5rem', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '12px', marginBottom: '1rem' }}>
           <Sparkles className="text-accent" size={32} />
         </div>
-        <h2 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Catalyst</h2>
+        <h2 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Katalyse</h2>
         <p style={{ color: 'var(--text-secondary)' }}>思考を構造化し、実行を支える。</p>
       </header>
 

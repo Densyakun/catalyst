@@ -44,7 +44,7 @@ export async function decomposeIntoTasks(
       is_social: z.boolean().describe('社会課題か'),
       estimated_beneficiaries: z.number().nullable().describe('推定受益者数（社会課題の場合）'),
     }),
-    prompt: `Catalyst プロジェクト分割エージェント。大規模な課題を実行可能なタスクに分割せよ。
+    prompt: `Katalyse プロジェクト分割エージェント。大規模な課題を実行可能なタスクに分割せよ。
 
 【分割基準】
 1タスク ≈ 1回のLLM呼び出しで完了可能な単位

@@ -42,7 +42,7 @@ export async function generateIdeas(
         auto_proceed: z.boolean().describe('自動実行可能か（低コスト・低リスク）'),
       })).min(1).max(5),
     }),
-    prompt: `Catalyst アイデア生成エージェント。目星をつけた課題とリソースから、実行可能なアイデアを生成せよ。
+    prompt: `Katalyse アイデア生成エージェント。目星をつけた課題とリソースから、実行可能なアイデアを生成せよ。
 
 【原則】
 1. 課題とリソースの組み合わせから実現可能なアイデアを提案する

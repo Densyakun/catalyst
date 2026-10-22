@@ -178,7 +178,7 @@ export default function Home() {
 
       <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', marginTop: '0.5rem', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.8rem' }}>
-          <h1 className="text-gradient" style={{ fontSize: '1.8rem', margin: 0 }}>Catalyst</h1>
+          <h1 className="text-gradient" style={{ fontSize: '1.8rem', margin: 0 }}>Katalyse</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: 0 }}>課題解決AI</p>
         </div>
         

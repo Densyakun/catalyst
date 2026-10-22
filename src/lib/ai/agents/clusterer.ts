@@ -34,7 +34,7 @@ export async function updateClusters() {
         }),
       })).max(5),
     }),
-    prompt: `Catalyst Insightエージェント。共通課題(クラスター)を抽出せよ。
+    prompt: `Katalyse Insightエージェント。共通課題(クラスター)を抽出せよ。
 【ミッション】
 1. 孤独の解消: 「自分だけではない」ことを可視化。
 2. 段階的協力: まず実態把握(data_gathering)等の低ハードルな協力を提案。

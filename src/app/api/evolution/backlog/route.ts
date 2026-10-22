@@ -46,7 +46,7 @@ async function buildBacklog() {
 
 function renderBacklogMarkdown(proposals: EvolutionProposal[]): string {
   const lines: string[] = [];
-  lines.push('# Catalyst 自己進化バックログ（自動生成）');
+  lines.push('# Katalyse 自己進化バックログ（自動生成）');
   lines.push('');
   lines.push(`生成日時: ${new Date().toISOString()}`);
   lines.push('');

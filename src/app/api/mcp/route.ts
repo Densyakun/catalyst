@@ -37,7 +37,7 @@ const TOOLS = [
   {
     name: 'list_proposals',
     description:
-      'Catalyst の改善提案を取得する。Issue化・実装の対象となる提案（既定: approved）を一覧できる。',
+      'Katalyse の改善提案を取得する。Issue化・実装の対象となる提案（既定: approved）を一覧できる。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -53,7 +53,7 @@ const TOOLS = [
   {
     name: 'get_proposal_context',
     description:
-      '提案1件と、根拠となる Catalyst データ（ユーザーの不満・欲求・課題・統計）を取得する。',
+      '提案1件と、根拠となる Katalyse データ（ユーザーの不満・欲求・課題・統計）を取得する。',
     inputSchema: {
       type: 'object',
       properties: { proposal_id: { type: 'string', description: '改善提案のUUID' } },
@@ -63,7 +63,7 @@ const TOOLS = [
   {
     name: 'report_result',
     description:
-      '実装などの結果を Catalyst に報告する。提案のステータスを更新し、ユーザーへ通知を作成する。',
+      '実装などの結果を Katalyse に報告する。提案のステータスを更新し、ユーザーへ通知を作成する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -81,7 +81,7 @@ const TOOLS = [
   },
   {
     name: 'list_problems',
-    description: 'Catalyst の課題（problems）を一覧する。',
+    description: 'Katalyse の課題（problems）を一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -93,7 +93,7 @@ const TOOLS = [
   },
   {
     name: 'create_problem',
-    description: 'Catalyst に課題（problem）を登録する。構想・要望の移行に使う。',
+    description: 'Katalyse に課題（problem）を登録する。構想・要望の移行に使う。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -112,7 +112,7 @@ const TOOLS = [
   },
   {
     name: 'list_projects',
-    description: 'Catalyst のプロジェクトを一覧する。',
+    description: 'Katalyse のプロジェクトを一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -124,7 +124,7 @@ const TOOLS = [
   },
   {
     name: 'create_project',
-    description: 'Catalyst にプロジェクトとタスクを作成する。',
+    description: 'Katalyse にプロジェクトとタスクを作成する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -162,7 +162,7 @@ const TOOLS = [
   },
   {
     name: 'list_resources',
-    description: 'Catalyst のユーザーリソースを一覧する。',
+    description: 'Katalyse のユーザーリソースを一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -173,7 +173,7 @@ const TOOLS = [
   },
   {
     name: 'create_resource',
-    description: 'Catalyst にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
+    description: 'Katalyse にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -190,7 +190,7 @@ const TOOLS = [
   },
   {
     name: 'create_proposal',
-    description: 'Catalyst に改善提案（evolution_proposals）を登録する。',
+    description: 'Katalyse に改善提案（evolution_proposals）を登録する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -212,7 +212,7 @@ const TOOLS = [
   {
     name: 'run_evolution_analysis',
     description:
-      'Catalyst の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
+      'Katalyse の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -239,7 +239,7 @@ const TOOLS = [
 function buildServer(userId: string, supabase: SupabaseClient): Server {
   const server = new Server(
     { name: 'catalyst', version: '1.0.0' },
-    { capabilities: { tools: {} }, instructions: 'Catalyst のデータを読み書きするツール群です。' },
+    { capabilities: { tools: {} }, instructions: 'Katalyse のデータを読み書きするツール群です。' },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));

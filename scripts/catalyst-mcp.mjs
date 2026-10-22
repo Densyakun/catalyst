@@ -7,12 +7,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 /**
- * Catalyst エージェント用 MCP サーバー（stdio）。
+ * Katalyse エージェント用 MCP サーバー（stdio）。
  * 既存の REST エージェントAPI (/api/agent/*) をMCPツールとして公開する。
  *
  * 環境変数（または設定ファイル）:
- *   CATALYST_BASE_URL  Catalyst のURL（既定 http://localhost:3000）
- *   CATALYST_TOKEN     Catalyst のユーザーAPIトークン（cat_...）
+ *   CATALYST_BASE_URL  Katalyse のURL（既定 http://localhost:3000）
+ *   CATALYST_TOKEN     Katalyse のユーザーAPIトークン（cat_...）
  *   CATALYST_MCP_CONFIG 設定ファイルのパス（省略時 ~/.config/opencode/catalyst-mcp.json）
  */
 
@@ -51,7 +51,7 @@ async function api(path, options = {}) {
   }
   if (!res.ok) {
     const detail = typeof data === 'string' ? data : JSON.stringify(data);
-    throw new Error(`Catalyst API ${res.status}: ${detail}`);
+    throw new Error(`Katalyse API ${res.status}: ${detail}`);
   }
   return data;
 }
@@ -60,7 +60,7 @@ const TOOLS = [
   {
     name: 'list_proposals',
     description:
-      'Catalyst の改善提案を取得する。Issue化すべき提案（既に approved など）や、実装済みの提案を一覧できる。',
+      'Katalyse の改善提案を取得する。Issue化すべき提案（既に approved など）や、実装済みの提案を一覧できる。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -76,7 +76,7 @@ const TOOLS = [
   {
     name: 'get_proposal_context',
     description:
-      '提案1件と、その根拠となるCatalystデータ（ユーザーの不満・欲求・課題・統計）を取得する。Issue本文の作成に使う。',
+      '提案1件と、その根拠となるKatalyseデータ（ユーザーの不満・欲求・課題・統計）を取得する。Issue本文の作成に使う。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -88,7 +88,7 @@ const TOOLS = [
   {
     name: 'report_result',
     description:
-      'Issue/PR の結果を Catalyst に報告する。提案のステータスを更新し、ユーザーへ通知を作成する。',
+      'Issue/PR の結果を Katalyse に報告する。提案のステータスを更新し、ユーザーへ通知を作成する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -109,7 +109,7 @@ const TOOLS = [
   },
   {
     name: 'list_problems',
-    description: 'Catalyst の課題（problems）を一覧する。',
+    description: 'Katalyse の課題（problems）を一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -121,7 +121,7 @@ const TOOLS = [
   },
   {
     name: 'create_problem',
-    description: 'Catalyst に課題（problem）を登録する。構想・要望の移行に使う。',
+    description: 'Katalyse に課題（problem）を登録する。構想・要望の移行に使う。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -140,7 +140,7 @@ const TOOLS = [
   },
   {
     name: 'list_projects',
-    description: 'Catalyst のプロジェクトを一覧する。',
+    description: 'Katalyse のプロジェクトを一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -152,7 +152,7 @@ const TOOLS = [
   },
   {
     name: 'create_project',
-    description: 'Catalyst にプロジェクトとタスクを作成する。',
+    description: 'Katalyse にプロジェクトとタスクを作成する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -190,7 +190,7 @@ const TOOLS = [
   },
   {
     name: 'list_resources',
-    description: 'Catalyst のユーザーリソースを一覧する。',
+    description: 'Katalyse のユーザーリソースを一覧する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -201,7 +201,7 @@ const TOOLS = [
   },
   {
     name: 'create_resource',
-    description: 'Catalyst にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
+    description: 'Katalyse にユーザーリソース（時間・金・スキル・道具・人脈）を登録する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -218,7 +218,7 @@ const TOOLS = [
   },
   {
     name: 'create_proposal',
-    description: 'Catalyst に改善提案（evolution_proposals）を登録する。',
+    description: 'Katalyse に改善提案（evolution_proposals）を登録する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -240,7 +240,7 @@ const TOOLS = [
   {
     name: 'run_evolution_analysis',
     description:
-      'Catalyst の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
+      'Katalyse の自己進化分析を実行する。ユーザーのフィードバック・操作ログ・課題から改善提案を生成して保存する。',
     inputSchema: {
       type: 'object',
       properties: {},

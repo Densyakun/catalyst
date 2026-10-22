@@ -16,7 +16,7 @@ export async function executeAction(action: any, problem: any) {
       next_steps: z.array(z.string()).describe('ユーザーが次に取るべき具体的な行動'),
       advice: z.string().describe('後悔しないためのアドバイス'),
     }),
-    prompt: `あなたは Catalyst システムの Executor エージェントです。
+    prompt: `あなたは Katalyse システムの Executor エージェントです。
 以下の「課題」に対して提案された「アクション」を具体化し、ユーザーが即座に意思決定できるように情報を整理してください。
 
 【課題】
@@ -40,7 +40,7 @@ ${action.description}
  */
 export async function chatWithExecutor(message: string, context: any) {
   const { text } = await generateTextForRole('solving', {
-    prompt: `あなたは Catalyst の Executor です。アクションの実行をサポートしています。
+    prompt: `あなたは Katalyse の Executor です。アクションの実行をサポートしています。
 現在の文脈: ${JSON.stringify(context)}
 
 ユーザーからの質問: ${message}

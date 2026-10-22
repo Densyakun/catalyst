@@ -44,7 +44,7 @@ export async function analyzeEvolution(signals: EvolutionSignals): Promise<Evolu
       summary: z.string().describe('シグナル全体の要約（3文以内）'),
       proposals: z.array(proposalSchema).max(6).describe('アプリ改善の提案リスト'),
     }),
-    prompt: `Catalyst Evolutionエージェント。ユーザーの不満・欲求・興味と実際の操作データから、アプリ自体の改善提案を生成せよ。
+    prompt: `Katalyse Evolutionエージェント。ユーザーの不満・欲求・興味と実際の操作データから、アプリ自体の改善提案を生成せよ。
 
 【使命】
 - ユーザーが言語化していない摩擦を、操作データ（クリックされない/エラー/離脱）からも検出する
@@ -100,7 +100,7 @@ export async function generateUIVariant(params: {
 
   const { object } = await generateObjectForRole<UIVariantDraft>('structuring', {
     schema: uiVariantSchema,
-    prompt: `Catalyst UI最適化エージェント。ダッシュボードの領域「${params.area}」を、ユーザーの状態に合わせて最適化するTSXを生成せよ。
+    prompt: `Katalyse UI最適化エージェント。ダッシュボードの領域「${params.area}」を、ユーザーの状態に合わせて最適化するTSXを生成せよ。
 
 【制約（厳守）】
 - コードは必ず次の形式にする: export function render(data) { return ( ... ); }

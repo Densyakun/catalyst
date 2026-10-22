@@ -5,14 +5,14 @@ import { Plug, Copy, Check, Bot } from 'lucide-react';
 
 /**
  * MCPSetupPanel:
- * Catalyst の MCP を「誰でも」使えるように、接続方法と開始プロンプトをアプリ内で案内する。
+ * Katalyse の MCP を「誰でも」使えるように、接続方法と開始プロンプトをアプリ内で案内する。
  * トークンは APITokensPanel で発行する（本文中の cat_... を置き換える）。
  */
 export default function MCPSetupPanel() {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const mcpUrl = 'https://<your-catalyst>/api/mcp';
+  const mcpUrl = 'https://ktls.app/api/mcp';
 
   const configSnippet = `{
   "mcp": {
@@ -25,8 +25,8 @@ export default function MCPSetupPanel() {
   }
 }`;
 
-  const promptSnippet = `あなたは私のローカルにある Catalyst のコードベース（現在のディレクトリ）を開発するエージェントです。
-Catalyst の MCP ツール（run_evolution_analysis / list_proposals / get_proposal_context / update_proposal_status / report_result）を使えます。
+  const promptSnippet = `あなたは私のローカルにある Katalyse のコードベース（現在のディレクトリ）を開発するエージェントです。
+Katalyse の MCP ツール（run_evolution_analysis / list_proposals / get_proposal_context / update_proposal_status / report_result）を使えます。
 
 1. run_evolution_analysis で自己進化の分析を実行してください。
 2. list_proposals で提案を取得し、優先度の高い順に一覧で見せてください。
@@ -60,11 +60,11 @@ Catalyst の MCP ツール（run_evolution_analysis / list_proposals / get_propo
         <div style={{ marginTop: '0.6rem' }}>
           <ol style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.7, paddingLeft: '1.1rem' }}>
             <li>上の「APIトークン」でトークンを発行（<code>cat_...</code>）</li>
-            <li>エージェントの MCP 設定に Catalyst を追加（下のJSON）</li>
+            <li>エージェントの MCP 設定に Katalyse を追加（下のJSON）</li>
             <li>エージェントに下のプロンプトを貼って開始</li>
           </ol>
           <p style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0' }}>
-            エンドポイント: <code>/api/mcp</code>（自分の Catalyst のURLを前置。HTTPヘッダに <code>Authorization: Bearer cat_...</code>）
+            エンドポイント: <code>/api/mcp</code>（自分の Katalyse のURLを前置。HTTPヘッダに <code>Authorization: Bearer cat_...</code>）
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0.5rem 0 0.25rem' }}>

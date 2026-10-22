@@ -68,7 +68,7 @@ export interface EvolutionProposal {
 }
 
 // ============================================================
-// ユーザー通知（エージェント → Catalyst → ユーザー）
+// ユーザー通知（エージェント → Katalyse → ユーザー）
 // ============================================================
 
 export type NotificationKind = 'improvement' | 'info' | 'error';

@@ -5,7 +5,7 @@ import { reportResult } from '@/lib/agent-tools';
 import type { AgentReportRequest } from '@/lib/types/evolution';
 
 /**
- * エージェントの実行結果をCatalystへ報告する（REST API）。
+ * エージェントの実行結果をKatalyseへ報告する（REST API）。
  * 認証したトークンのユーザーの提案のみ更新できる。
  *
  * POST /api/agent/report

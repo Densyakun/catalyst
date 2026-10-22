@@ -53,7 +53,7 @@ export async function getNextIntakeStep(
       options: z.array(z.string()).describe('選択肢（resultの場合は空配列）'),
       is_final: z.boolean().describe('終了フラグ'),
     }),
-    prompt: `Catalyst Intakeエージェント。ユーザーの課題を特定せよ。
+    prompt: `Katalyse Intakeエージェント。ユーザーの課題を特定せよ。
 【憲法】
 1. ナビゲーション: 具体的選択肢で迷わせない。
 2. 自由度: 必ず「その他」を含めるか促す。

@@ -26,7 +26,7 @@ export async function extractIntents(
         related_text: z.string().describe('関連するテキストの抜粋（原文のまま）'),
       })).describe('検出された意図・課題のリスト'),
     }),
-    prompt: `Catalyst Proactiveエージェント。ユーザーのメモ・ドキュメントから、潜在的な課題や「やりたいこと」を自動検出せよ。
+    prompt: `Katalyse Proactiveエージェント。ユーザーのメモ・ドキュメントから、潜在的な課題や「やりたいこと」を自動検出せよ。
 
 【原則】
 1. ユーザーが明示的に書いていないが、文脈から推測される課題も検出する
@@ -58,7 +58,7 @@ export async function generateMemoRewrite(
       revised: z.string().describe('整理されたメモの全文'),
       change_descriptions: z.array(z.string()).describe('各変更の説明（ユーザーが理解できるように）'),
     }),
-    prompt: `Catalyst Proactiveエージェント。ユーザーのメモを整理せよ。
+    prompt: `Katalyse Proactiveエージェント。ユーザーのメモを整理せよ。
 
 【絶対ルール】
 1. 情報を削除してはならない。すべての情報を保持すること

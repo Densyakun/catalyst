@@ -9,7 +9,7 @@ import FeedbackWidget from "@/components/FeedbackWidget";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Catalyst | AI Task Architecture",
+  title: "Katalyse | AI Task Architecture",
   description: "AI-driven architecture for structuring and solving complex problems.",
 };
 

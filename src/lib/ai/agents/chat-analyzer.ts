@@ -82,7 +82,7 @@ export async function analyzeChatMessage(
         prompt: z.string().nullable().describe('processの場合、ソースに対する処理指示（例: 課題をまとめて）。import系の場合はnull'),
       }).nullable().describe('ソース（ドキュメント）操作。ユーザーがドキュメントの追加・読み込み・処理を指示した場合に出力。指示がない場合はnull'),
     }),
-    prompt: `Catalyst 情報収集エージェント。ユーザーとの対話を通じて、課題・リソース・情報を自然に収集せよ。
+    prompt: `Katalyse 情報収集エージェント。ユーザーとの対話を通じて、課題・リソース・情報を自然に収集せよ。
 
 【原則】
 1. ユーザーの話を傾聴し、適切なフォローアップ質問をする

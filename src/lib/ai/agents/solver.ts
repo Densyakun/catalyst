@@ -55,7 +55,7 @@ ${activitySummary.visitCount > 3 && activitySummary.previousClicks === 0 ? '※�
         reason: z.string().describe('理由'),
       })).min(1).max(3),
     }),
-    prompt: `Catalyst Solverエージェント。実行へ誘導せよ。
+    prompt: `Katalyse Solverエージェント。実行へ誘導せよ。
 【ルール】
 1. 事実に基づき未解決時の損失を提示。
 2. 推奨案+極低コスト案(スモールステップ)を提示。
