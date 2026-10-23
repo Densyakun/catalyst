@@ -79,6 +79,8 @@ export interface UserNotification {
   proposal_id: string | null;
   title: string;
   body: string | null;
+  detail: string | null;
+  link_url: string | null;
   kind: NotificationKind;
   is_read: boolean;
   created_at: string;
@@ -122,6 +124,7 @@ export interface AgentReportRequest {
   repo?: string;
   pr_url?: string;
   summary?: string;
+  detail?: string;
   notify?: boolean;
 }
 

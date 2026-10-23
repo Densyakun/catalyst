@@ -58,7 +58,7 @@ export async function reportResult(
 
   const { data: proposal, error: fetchError } = await supabase
     .from('evolution_proposals')
-    .select('id, user_id, title')
+    .select('id, user_id, title, rationale, proposed_change')
     .eq('id', body.proposal_id)
     .eq('user_id', userId)
     .maybeSingle();
@@ -87,12 +87,26 @@ export async function reportResult(
     .single();
   if (updateError) throw updateError;
 
-  if (body.notify !== false && body.summary && proposal.user_id) {
+  if (body.notify !== false && (body.summary || body.detail) && proposal.user_id) {
+    const issueUrl = normalizeUrl(
+      body.issue_url ||
+        (body.repo && body.issue_number ? `https://github.com/${body.repo}/issues/${body.issue_number}` : null) ||
+        (updated.github_issue_url as string | null),
+    );
+    const summary = body.summary || body.detail || '';
+    const detailParts = [
+      body.detail || summary,
+      proposal.rationale ? `理由: ${proposal.rationale}` : '',
+      proposal.proposed_change ? `変更内容: ${proposal.proposed_change}` : '',
+    ].filter(Boolean);
+
     await insertNotificationOnce(supabase, {
       userId: proposal.user_id,
       proposalId: proposal.id,
       title: proposal.title,
-      body: body.summary,
+      body: summary,
+      detail: detailParts.join('\n\n'),
+      linkUrl: issueUrl || normalizeUrl(body.pr_url),
     });
   }
 
@@ -111,6 +125,16 @@ function mapStatus(state?: string): ProposalStatus | null {
   if (['merged', 'closed', 'done', 'completed', 'implemented'].includes(normalized)) return 'implemented';
   if (['rejected', 'wontfix', 'invalid'].includes(normalized)) return 'rejected';
   return null;
+}
+
+function normalizeUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function loadRelated(supabase: SupabaseClient, userId: string) {
@@ -160,7 +184,14 @@ function toContextProposal(row: Record<string, unknown>): AgentContextProposal {
 
 async function insertNotificationOnce(
   supabase: SupabaseClient,
-  params: { userId: string; proposalId: string; title: string; body: string },
+  params: {
+    userId: string;
+    proposalId: string;
+    title: string;
+    body: string;
+    detail?: string | null;
+    linkUrl?: string | null;
+  },
 ) {
   const { data: existing } = await supabase
     .from('user_notifications')
@@ -170,13 +201,33 @@ async function insertNotificationOnce(
     .limit(1);
   if (existing && existing.length > 0) return;
 
-  await supabase.from('user_notifications').insert({
+  const base = {
     user_id: params.userId,
     proposal_id: params.proposalId,
     title: `改善を反映しました: ${params.title}`,
     body: params.body,
     kind: 'improvement',
+  };
+
+  const { error } = await supabase.from('user_notifications').insert({
+    ...base,
+    detail: params.detail ?? null,
+    link_url: params.linkUrl ?? null,
   });
+
+  // 旧スキーマ（detail / link_url 未追加）でも通知自体は失わないようにする
+  if (error) {
+    const isMissingColumn =
+      error.code === '42703' ||
+      error.code === 'PGRST204' ||
+      /column .*(detail|link_url).* does not exist/i.test(error.message || '');
+    if (isMissingColumn) {
+      const { error: fallbackError } = await supabase.from('user_notifications').insert(base);
+      if (fallbackError) console.error('Notification insert error:', fallbackError);
+    } else {
+      console.error('Notification insert error:', error);
+    }
+  }
 }
 
 // ------------------------------------------------------------

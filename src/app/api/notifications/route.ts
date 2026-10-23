@@ -1,6 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 
+function normalizeUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/notifications  → 自分の通知一覧（新しい順）
  */
@@ -20,7 +30,44 @@ export async function GET() {
       .limit(30);
     if (error) throw error;
 
-    return NextResponse.json(data || []);
+    const rows = data || [];
+    const proposalIds = Array.from(
+      new Set(rows.map((n) => n.proposal_id).filter((id): id is string => Boolean(id))),
+    );
+
+    const proposalMap = new Map<
+      string,
+      { github_issue_url: string | null; rationale: string | null; proposed_change: string | null }
+    >();
+    if (proposalIds.length > 0) {
+      const { data: proposals } = await supabase
+        .from('evolution_proposals')
+        .select('id, github_issue_url, rationale, proposed_change')
+        .in('id', proposalIds);
+      for (const p of proposals || []) {
+        proposalMap.set(p.id, {
+          github_issue_url: p.github_issue_url ?? null,
+          rationale: p.rationale ?? null,
+          proposed_change: p.proposed_change ?? null,
+        });
+      }
+    }
+
+    const enriched = rows.map((n) => {
+      const proposal = n.proposal_id ? proposalMap.get(n.proposal_id) : undefined;
+      const detail =
+        n.detail ??
+        [n.body, proposal?.rationale ? `理由: ${proposal.rationale}` : '', proposal?.proposed_change ? `変更内容: ${proposal.proposed_change}` : '']
+          .filter(Boolean)
+          .join('\n\n');
+      return {
+        ...n,
+        detail: detail || null,
+        link_url: normalizeUrl(n.link_url) ?? normalizeUrl(proposal?.github_issue_url),
+      };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Notifications fetch error:', error);

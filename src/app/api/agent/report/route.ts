@@ -9,7 +9,7 @@ import type { AgentReportRequest } from '@/lib/types/evolution';
  * 認証したトークンのユーザーの提案のみ更新できる。
  *
  * POST /api/agent/report
- * body: { proposal_id, state?, issue_number?, issue_url?, repo?, pr_url?, summary?, notify? }
+ * body: { proposal_id, state?, issue_number?, issue_url?, repo?, pr_url?, summary?, detail?, notify? }
  *
  * 認証: Authorization: Bearer <ユーザーAPIトークン>
  */
