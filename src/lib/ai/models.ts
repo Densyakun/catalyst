@@ -18,13 +18,13 @@ export function assertLLMConfigured(): void {
   }
 }
 
-function getBaseURL(): string {
+export function getLlmBaseUrl(): string {
   const configured = process.env.OPENAI_BASE_URL;
   if (!isValidValue(configured)) return DEFAULT_BASE_URL;
   return configured.replace(/\/+$/, '');
 }
 
-function getModelId(role: ModelRole): string {
+export function resolveModelId(role: ModelRole): string {
   const roleKey = role === 'structuring' ? 'OPENAI_MODEL_STRUCTURING' : 'OPENAI_MODEL_SOLVING';
   const candidates = [process.env[roleKey], process.env.OPENAI_MODEL];
   return candidates.find(isValidValue) ?? DEFAULT_MODEL;
@@ -36,8 +36,8 @@ function getModelId(role: ModelRole): string {
 export function getModelForRole(role: ModelRole): LanguageModel {
   assertLLMConfigured();
   const openai = createOpenAI({
-    baseURL: getBaseURL(),
+    baseURL: getLlmBaseUrl(),
     apiKey: process.env.OPENAI_API_KEY!,
   });
-  return openai.chat(getModelId(role));
+  return openai.chat(resolveModelId(role));
 }

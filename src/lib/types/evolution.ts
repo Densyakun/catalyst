@@ -143,6 +143,49 @@ export interface ActivitySignal {
   count: number;
 }
 
+// ============================================================
+// LLM ヘルス（呼び出しログの集計）
+// ============================================================
+
+export interface LlmHealthGroup {
+  role: string;
+  agent: string | null;
+  model: string;
+  totalCalls: number;
+  failures: number;
+  failureRate: number;
+  schemaFailures: number;
+  schemaFailureRate: number;
+  p95LatencyMs: number | null;
+  avgInputTokens: number | null;
+  avgOutputTokens: number | null;
+}
+
+export type LlmHealthMetric = 'failure_rate' | 'schema_failure_rate' | 'p95_latency';
+
+export interface LlmHealthFinding {
+  severity: 'critical' | 'warning';
+  role: string;
+  agent: string | null;
+  model: string;
+  metric: LlmHealthMetric;
+  value: number;
+  threshold: number;
+  title: string;
+  recommendation: string;
+}
+
+export interface LlmHealthReport {
+  available: boolean;
+  windowDays: number;
+  totalCalls: number;
+  failureRate: number;
+  schemaFailureRate: number;
+  p95LatencyMs: number | null;
+  groups: LlmHealthGroup[];
+  findings: LlmHealthFinding[];
+}
+
 export interface EvolutionSignals {
   feedback: FeedbackSignal[];
   complaints: string[];
@@ -153,16 +196,22 @@ export interface EvolutionSignals {
   stuckInsights: string[];
   messages: string[];
   activity: ActivitySignal[];
+  llmHealth: LlmHealthReport;
   stats: {
     feedbackCount: number;
     negativeCount: number;
     visitCount: number;
     errorCount: number;
     totalEvents: number;
+    llmCallCount: number;
+    llmFailureRate: number;
+    llmSchemaFailureRate: number;
   };
 }
 
-export type EvolutionSignalsSnapshot = Partial<EvolutionSignals['stats']>;
+export type EvolutionSignalsSnapshot = Partial<EvolutionSignals['stats']> & {
+  llmHealth?: LlmHealthReport;
+};
 
 // ============================================================
 // UIバリアント

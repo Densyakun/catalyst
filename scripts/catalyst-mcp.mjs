@@ -263,6 +263,64 @@ const TOOLS = [
       required: ['proposal_id', 'status'],
     },
   },
+  {
+    name: 'list_sharing',
+    description: '自分が共有した資金・リソースと、受け取った共有の一覧を取得する。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'create_share',
+    description:
+      '資金またはリソースを、金額上限・回数・期限・権限つきで共有する。資金共有は目的資金へ移動する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        share_type: { type: 'string', enum: ['money', 'resource', 'api', 'mcp'] },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        resource_id: { type: 'string' },
+        purpose_id: { type: 'string' },
+        shared_idea_id: { type: 'string' },
+        amount_limit: { type: 'number' },
+        permissions: {
+          type: 'array',
+          items: { type: 'string', enum: ['read', 'execute'] },
+        },
+        max_uses: { type: 'number' },
+        expires_at: { type: 'string' },
+      },
+      required: ['share_type'],
+    },
+  },
+  {
+    name: 'redeem_share_code',
+    description: '共有コードを使って、自分に共有の利用権を付与する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string' },
+      },
+      required: ['code'],
+    },
+  },
+  {
+    name: 'authorize_shared_use',
+    description:
+      '共有された資金・リソースを利用する。上限・期限・権限をサーバー側で検証し、監査ログに記録する。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        share_id: { type: 'string' },
+        action: { type: 'string', enum: ['read', 'execute', 'use'] },
+        amount: { type: 'number' },
+      },
+      required: ['share_id'],
+    },
+  },
 ];
 
 const server = new Server(
@@ -315,6 +373,20 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       result = await api(`/api/agent/proposals/${encodeURIComponent(args.proposal_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: args.status }),
+      });
+    } else if (name === 'list_sharing') {
+      result = await api('/api/agent/sharing');
+    } else if (name === 'create_share') {
+      result = await api('/api/agent/sharing', { method: 'POST', body: JSON.stringify(args) });
+    } else if (name === 'redeem_share_code') {
+      result = await api('/api/agent/sharing/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code: args.code }),
+      });
+    } else if (name === 'authorize_shared_use') {
+      result = await api('/api/agent/sharing/authorize', {
+        method: 'POST',
+        body: JSON.stringify(args),
       });
     } else {
       return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };

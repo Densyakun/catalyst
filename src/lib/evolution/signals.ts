@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { collectLlmHealth } from '@/lib/evolution/llm-health';
 import type {
   ActivitySignal,
   EvolutionSignals,
@@ -138,6 +139,8 @@ export async function collectEvolutionSignals(
     }
   }
 
+  const llmHealth = await collectLlmHealth(supabase);
+
   return {
     feedback,
     complaints,
@@ -148,12 +151,16 @@ export async function collectEvolutionSignals(
     stuckInsights,
     messages: messages.slice(-30),
     activity,
+    llmHealth,
     stats: {
       feedbackCount: feedback.length,
       negativeCount: complaints.length,
       visitCount,
       errorCount,
       totalEvents: activityRows.length,
+      llmCallCount: llmHealth.totalCalls,
+      llmFailureRate: llmHealth.failureRate,
+      llmSchemaFailureRate: llmHealth.schemaFailureRate,
     },
   };
 }

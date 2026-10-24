@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
+import { createAdminClient } from '@/lib/supabase-admin';
 import { getUserBalance } from '@/lib/cost/model';
 
 /**
@@ -63,34 +64,72 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { amount, related_project_id, related_insight_id } = await req.json();
+    const { amount: rawAmount, related_project_id, related_insight_id, purpose_id, message } = await req.json();
+    const amount = Number(rawAmount);
 
-    if (!amount || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Valid amount is required' }, { status: 400 });
     }
 
+    let purpose: { id: string; owner_id: string | null; balance: number; status: string } | null = null;
+    if (typeof purpose_id === 'string' && purpose_id) {
+      const { data } = await supabase
+        .from('fund_purposes')
+        .select('id, owner_id, balance, status')
+        .eq('id', purpose_id)
+        .maybeSingle();
+      if (!data) {
+        return NextResponse.json({ error: 'Purpose not found' }, { status: 404 });
+      }
+      if (data.status !== 'active') {
+        return NextResponse.json({ error: 'Purpose is not active' }, { status: 400 });
+      }
+      purpose = data;
+    }
+
+    const admin = createAdminClient();
+    const now = new Date().toISOString();
+
     // 寄付記録
-    await supabase.from('donations').insert({
+    const { error: donationError } = await admin.from('donations').insert({
       user_id: user.id,
       amount,
+      purpose_id: purpose?.id ?? null,
+      message: typeof message === 'string' ? message.trim().slice(0, 1000) : null,
       related_project_id: related_project_id || null,
       related_insight_id: related_insight_id || null,
     });
+    if (donationError) throw donationError;
+
+    if (purpose) {
+      await admin
+        .from('fund_purposes')
+        .update({ balance: Number(purpose.balance) + amount, updated_at: now })
+        .eq('id', purpose.id);
+
+      await admin.from('fund_transactions').insert({
+        purpose_id: purpose.id,
+        user_id: user.id,
+        type: 'donation',
+        amount,
+        note: typeof message === 'string' ? message.trim().slice(0, 1000) : null,
+      });
+    }
 
     // 寄付プール更新
-    const { data: pool } = await supabase
+    const { data: pool } = await admin
       .from('donation_pool')
       .select('id, balance, total_donated')
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (pool) {
-      await supabase
+      await admin
         .from('donation_pool')
         .update({
           balance: Number(pool.balance) + amount,
           total_donated: Number(pool.total_donated) + amount,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         })
         .eq('id', pool.id);
     }

@@ -49,6 +49,7 @@ export async function analyzeEvolution(signals: EvolutionSignals): Promise<Evolu
 【使命】
 - ユーザーが言語化していない摩擦を、操作データ（クリックされない/エラー/離脱）からも検出する
 - 「不満の解消」と「欲求・興味に応える新機能」の両方を提案する
+- LLMの失敗率・JSON検証失敗率・レイテンシから、役割ごとのモデル変更の必要性も検出する
 - 既存機能の再提案は禁止。既存機能の発展・改善のみ提案する
 
 【既存機能（再提案禁止）】
@@ -63,12 +64,15 @@ ${FEATURE_INVENTORY}
 - 停滞中のインサイト: ${JSON.stringify(signals.stuckInsights)}
 - 最近の会話（ユーザー発言）: ${JSON.stringify(signals.messages)}
 - 操作ログ集計（7日）: ${JSON.stringify(signals.activity)}
+- LLMヘルス（7日）: ${JSON.stringify(signals.llmHealth)}
 - 統計: ${JSON.stringify(signals.stats)}
 
 【出力ルール】
 - 提案は最大6件。根拠が弱いものは出さない
 - priorityは「ユーザーへの影響 × 実装しやすさ」で0-1に設定
-- evidenceには必ず実データ（ユーザーの声・操作の偏り）を引用する
+- evidenceには必ず実データ（ユーザーの声・操作の偏り・LLMログ）を引用する
+- LLMヘルスに critical/warning がある場合、該当roleのモデル変更・フォールバック・スキーマ簡素化を優先度0.8以上で提案する
+- [LLM] で始まるモデル変更提案は別途自動登録されるため、同じ内容の重複提案は避ける
 `,
     maxOutputTokens: 3000,
   });

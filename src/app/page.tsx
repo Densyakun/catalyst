@@ -5,6 +5,10 @@ import IntakeWizard from '@/components/IntakeWizard';
 import AuthUI from '@/components/Auth';
 import SourcesPanel from '@/components/SourcesPanel';
 import InsightsPanel from '@/components/InsightsPanel';
+import IdeaInboxPanel from '@/components/IdeaInboxPanel';
+import FundsPanel from '@/components/FundsPanel';
+import CommunityIdeasPanel from '@/components/CommunityIdeasPanel';
+import SharingPanel from '@/components/SharingPanel';
 import ChatPanel from '@/components/ChatPanel';
 import ResourcesPanel from '@/components/ResourcesPanel';
 import ProjectsPanel from '@/components/ProjectsPanel';
@@ -30,6 +34,8 @@ export default function Home() {
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [sourcesRefreshKey, setSourcesRefreshKey] = useState(0);
   const [sourceNames, setSourceNames] = useState<string[]>([]);
+  const [fundsRefreshKey, setFundsRefreshKey] = useState(0);
+  const [communityRefreshKey, setCommunityRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -98,6 +104,23 @@ export default function Home() {
     setSourcesRefreshKey((k) => k + 1);
     setInsightsRefreshKey((k) => k + 1);
     fetchSourceNames();
+  }, []);
+
+  const handleIdeaProcessed = useCallback(() => {
+    setInsightsRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleFundsChanged = useCallback(() => {
+    setCommunityRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleCommunitySupported = useCallback(() => {
+    setFundsRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleSharingChanged = useCallback(() => {
+    setFundsRefreshKey((k) => k + 1);
+    setCommunityRefreshKey((k) => k + 1);
   }, []);
 
   const handleLogout = async () => {
@@ -359,13 +382,31 @@ export default function Home() {
                 refreshKey={insightsRefreshKey}
               />
             </div>
+            <div style={{ marginTop: '0.8rem' }}>
+              <IdeaInboxPanel onProcessed={handleIdeaProcessed} />
+            </div>
+            <div style={{ marginTop: '0.8rem' }}>
+              <CommunityIdeasPanel
+                refreshKey={communityRefreshKey}
+                onSupported={handleCommunitySupported}
+              />
+            </div>
           </div>
         )}
 
         {/* 右列: プロジェクト + 診断履歴 + IntakeWizard */}
         {!(result || executionResult) && (
           <div>
-            <ProjectsPanel />
+            <FundsPanel refreshKey={fundsRefreshKey} onDonated={handleFundsChanged} />
+            <div style={{ marginTop: '0.8rem' }}>
+              <SharingPanel
+                refreshKey={fundsRefreshKey + communityRefreshKey}
+                onChanged={handleSharingChanged}
+              />
+            </div>
+            <div style={{ marginTop: '0.8rem' }}>
+              <ProjectsPanel />
+            </div>
             <div style={{ marginTop: '0.8rem' }}>
               <EvolutionPanel />
             </div>

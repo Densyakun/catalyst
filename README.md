@@ -27,6 +27,22 @@ Katalyseは、個人の抱える不透明な課題をAIが構造化し、具体�
 - **AI モデルの役割別割り当て**:
   - タスクの性質（構造化 vs 解決提案）に合わせてモデルを割り当て。
   - 単一の `OPENAI_API_KEY` と `OPENAI_BASE_URL` を使い、モデルは `OPENAI_MODEL_STRUCTURING` / `OPENAI_MODEL_SOLVING` で指定。
+- **アイデアのオフライン保存・時間指定・後処理**:
+  - LLM が使えない時でもアイデアを保存でき、`idea_inbox` にキューイング。
+  - 処理予定日時を指定でき、アプリを開いた時・一定間隔で自動再処理。
+- **目的別資金とコスト最適化**:
+  - `fund_purposes` で目的ごとに寄付を管理し、`fund_transactions` に台帳を記録。
+  - 目的資金 → ユーザー残高 → 寄付プールの順で資金源を推奨。
+- **共有アイデアと協力**:
+  - 自分のインサイトを共有アイデアとして公開。
+  - 他ユーザーが資金・時間・スキルで支援でき、所有者へ通知。
+- **資金・API/MCPリソースの安全な共有**:
+  - 共有コードで特定の相手だけに公開。
+  - 金額上限・利用回数・有効期限・権限を設定し、取消時は未使用資金を返金。
+  - 利用履歴を監査ログへ記録し、エージェント/MCPからも認可APIを利用可能。
+- **LLM ヘルスの自動検知**:
+  - 全 LLM 呼び出しの成功率・JSON検証失敗率・レイテンシを `llm_calls` に記録。
+  - 役割（構造化 / 解決提案）ごとに異常を検知し、モデル変更の改善提案を自己進化エンジンへ自動登録。
 - **診断セッションの永続化**:
   - 診断の進捗をリアルタイムに保存し、中断してもいつでも再開可能。
 - **エージェンティック UI (Self-Mutating UI)**:
@@ -58,4 +74,4 @@ OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 ```
 
 ### 3. データベースのセットアップ
-`supabase_schema.sql`、`supabase_migration_v2.sql` を Supabase SQL Editor で順に実行してください。
+`supabase_schema.sql` と `supabase_migration_v2.sql` 〜 `supabase_migration_v13.sql` を Supabase SQL Editor で順に実行してください。
