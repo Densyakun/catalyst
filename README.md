@@ -24,9 +24,9 @@ Katalyseは、個人の抱える不透明な課題をAIが構造化し、具体�
 
 ## 3. 自律的インフラ機能 (Autonomous Features)
 
-- **AI モデルの自律選択とフォールバック**: 
-  - タスクの性質（構造化 vs 解決提案）に合わせて Portkey 経由でモデルを割り当て。
-  - フォールバック・ルーティングは Portkey Config で定義（単一の `PORTKEY_API_KEY`）。
+- **AI モデルの役割別割り当て**:
+  - タスクの性質（構造化 vs 解決提案）に合わせてモデルを割り当て。
+  - 単一の `OPENAI_API_KEY` と `OPENAI_BASE_URL` を使い、モデルは `OPENAI_MODEL_STRUCTURING` / `OPENAI_MODEL_SOLVING` で指定。
 - **診断セッションの永続化**:
   - 診断の進捗をリアルタイムに保存し、中断してもいつでも再開可能。
 - **エージェンティック UI (Self-Mutating UI)**:
@@ -37,7 +37,7 @@ Katalyseは、個人の抱える不透明な課題をAIが構造化し、具体�
 - **Frontend**: Next.js (App Router), React, Framer Motion
 - **Backend**: Next.js API Routes, Vercel
 - **Database/Auth**: Supabase (PostgreSQL)
-- **AI**: Vercel AI SDK + [Portkey](https://portkey.ai/docs/integrations/libraries/vercel)
+- **AI**: Vercel AI SDK + OpenAI（OpenAI 互換エンドポイント対応）
 
 ## 5. セットアップ
 
@@ -51,9 +51,10 @@ npm install
 ```env
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-PORTKEY_API_KEY=...
-PORTKEY_CONFIG_STRUCTURING=pc-xxxxx  # Portkey → Configs の ID 列
-PORTKEY_CONFIG_SOLVING=pc-yyyyy
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL_STRUCTURING=gpt-4o-mini  # 任意（未指定なら OPENAI_MODEL）
+OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 ```
 
 ### 3. データベースのセットアップ

@@ -3,60 +3,41 @@ import type { LanguageModel } from 'ai';
 
 export type ModelRole = 'structuring' | 'solving';
 
-const PORTKEY_BASE_URL = 'https://api.portkey.ai/v1';
-// SDKの型バリデーションを通過させるための、標準的なOpenAIモデル名をベースにします
-const DEFAULT_MODEL_PLACEHOLDER = 'gpt-4o-mini';
+const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_MODEL = 'gpt-4o-mini';
 
-function isValidKey(key: string | undefined): key is string {
-  if (!key) return false;
+function isValidValue(value: string | undefined): value is string {
+  if (!value) return false;
   const placeholderPatterns = ['your_', '_here', 'api_key', 'example'];
-  return !placeholderPatterns.some((pattern) => key.toLowerCase().includes(pattern));
+  return !placeholderPatterns.some((pattern) => value.toLowerCase().includes(pattern));
 }
 
-export function assertPortkeyConfigured(): void {
-  if (!isValidKey(process.env.PORTKEY_API_KEY)) {
-    throw new Error('PORTKEY_API_KEY is not set. Get your key at https://app.portkey.ai/');
+export function assertLLMConfigured(): void {
+  if (!isValidValue(process.env.OPENAI_API_KEY)) {
+    throw new Error('OPENAI_API_KEY is not set.');
   }
 }
 
-function getRoleConfigId(role: ModelRole): string {
-  const envKey = role === 'structuring' ? 'PORTKEY_CONFIG_STRUCTURING' : 'PORTKEY_CONFIG_SOLVING';
-  const configured = process.env[envKey];
-  if (!isValidKey(configured)) {
-    throw new Error(`${envKey} is not set. Copy the Config ID from Portkey.`);
-  }
-  return configured;
+function getBaseURL(): string {
+  const configured = process.env.OPENAI_BASE_URL;
+  if (!isValidValue(configured)) return DEFAULT_BASE_URL;
+  return configured.replace(/\/+$/, '');
 }
 
-function getModelPlaceholder(): string {
-  const configured = process.env.PORTKEY_MODEL_PLACEHOLDER;
-  return isValidKey(configured) ? configured : DEFAULT_MODEL_PLACEHOLDER;
-}
-
-/**
- * 1. @ai-sdk/openai を使い、純粋にベースURLとConfig IDのみを付与してインスタンス化
- */
-function createPortkeyProvider(configId: string) {
-  assertPortkeyConfigured();
-  return createOpenAI({
-    baseURL: PORTKEY_BASE_URL,
-    apiKey: process.env.PORTKEY_API_KEY!,
-    headers: {
-      'x-portkey-config': configId, // Portkey側はこのIDに紐づくJSONルールを最優先します
-    },
-  });
+function getModelId(role: ModelRole): string {
+  const roleKey = role === 'structuring' ? 'OPENAI_MODEL_STRUCTURING' : 'OPENAI_MODEL_SOLVING';
+  const candidates = [process.env[roleKey], process.env.OPENAI_MODEL];
+  return candidates.find(isValidValue) ?? DEFAULT_MODEL;
 }
 
 /**
- * 2. 役割に応じたLanguageModelを生成
+ * 単一のAPIキー・エンドポイントで、役割に応じたモデルを生成する。
  */
 export function getModelForRole(role: ModelRole): LanguageModel {
-  const configId = getRoleConfigId(role);
-  const portkey = createPortkeyProvider(configId);
-  
-  // スラッグプレフィックス（portkey/ 等）を削除し、プレースホルダー名のみを渡します。
-  // Vercel AI SDK（LanguageModelV2以上）はこれを正当なOpenAIモデルとして認識し、Gatewayへ送信します。
-  const baseModel = getModelPlaceholder(); 
-
-  return portkey.chat(baseModel);
+  assertLLMConfigured();
+  const openai = createOpenAI({
+    baseURL: getBaseURL(),
+    apiKey: process.env.OPENAI_API_KEY!,
+  });
+  return openai.chat(getModelId(role));
 }

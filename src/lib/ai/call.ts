@@ -1,6 +1,6 @@
 import { generateObject, generateText } from 'ai';
 import type { z } from 'zod';
-import { assertPortkeyConfigured, getModelForRole, type ModelRole } from './models';
+import { assertLLMConfigured, getModelForRole, type ModelRole } from './models';
 
 /** エージェントから渡す generateObject オプション（model は役割から解決） */
 export type RoleGenerateObjectOptions = {
@@ -28,13 +28,13 @@ function normalizeOutputTokens<T extends RoleGenerateObjectOptions | RoleGenerat
 }
 
 /**
- * 役割に応じたモデルで structured output を生成する（Portkey 経由）。
+ * 役割に応じたモデルで structured output を生成する。
  */
 export async function generateObjectForRole<T>(
   role: ModelRole,
   options: RoleGenerateObjectOptions,
 ): Promise<{ object: T }> {
-  assertPortkeyConfigured();
+  assertLLMConfigured();
   const result = await generateObject({
     ...normalizeOutputTokens(options),
     model: getModelForRole(role),
@@ -43,13 +43,13 @@ export async function generateObjectForRole<T>(
 }
 
 /**
- * 役割に応じたモデルでテキストを生成する（Portkey 経由）。
+ * 役割に応じたモデルでテキストを生成する。
  */
 export async function generateTextForRole(
   role: ModelRole,
   options: RoleGenerateTextOptions,
 ) {
-  assertPortkeyConfigured();
+  assertLLMConfigured();
   return generateText({
     ...normalizeOutputTokens(options),
     model: getModelForRole(role),
