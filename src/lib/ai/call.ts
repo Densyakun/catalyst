@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import {
   assertLLMConfigured,
   getLlmBaseUrl,
+  getLlmRequestHeaders,
   getModelForRole,
   resolveModelId,
   type ModelRole,
@@ -69,12 +70,14 @@ export async function generateObjectForRole<T>(
 
   const model = resolveModelId(role);
   const baseUrl = getLlmBaseUrl();
+  const headers = getLlmRequestHeaders();
   const startedAt = Date.now();
 
   try {
     const result = await generateObject({
       ...normalizeOutputTokens(generateOptions),
       model: getModelForRole(role),
+      ...(headers ? { headers } : {}),
     });
     await logLlmCall({
       role,
@@ -113,12 +116,14 @@ export async function generateTextForRole(
 
   const model = resolveModelId(role);
   const baseUrl = getLlmBaseUrl();
+  const headers = getLlmRequestHeaders();
   const startedAt = Date.now();
 
   try {
     const result = await generateText({
       ...normalizeOutputTokens(generateOptions),
       model: getModelForRole(role),
+      ...(headers ? { headers } : {}),
     });
     await logLlmCall({
       role,
