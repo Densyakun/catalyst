@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "catalyst-cloud-scheduler",
+  "main": "index.ts",
+  "compatibility_date": "2026-10-13",
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}

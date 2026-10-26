@@ -1,0 +1,8 @@
+{
+  "name": "Katalyse Cloud Agent",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "node",
+  "postStartCommand": "bash -lc 'nohup node scripts/cloud-runner.mjs > /tmp/katalyst-cloud.log 2>&1 &'"
+}

@@ -17,6 +17,7 @@ import DynamicUISlot from '@/components/DynamicUISlot';
 import NotificationsBell from '@/components/NotificationsBell';
 import APITokensPanel from '@/components/APITokensPanel';
 import MCPSetupPanel from '@/components/MCPSetupPanel';
+import CloudPanel from '@/components/CloudPanel';
 import TodayView, { type NavTab } from '@/components/TodayView';
 import ExecutionView from '@/components/ExecutionView';
 import DiagnosisResultView from '@/components/DiagnosisResultView';
@@ -26,6 +27,7 @@ import type { TodayFocus } from '@/lib/types/today';
 import {
   ArrowRight,
   ClipboardList,
+  Cloud,
   FolderKanban,
   History,
   Loader2,
@@ -89,12 +91,42 @@ const TABS: Array<{ key: NavTab; label: string; icon: typeof Sun }> = [
   { key: 'issues', label: '課題', icon: ClipboardList },
   { key: 'plan', label: '計画', icon: FolderKanban },
   { key: 'connect', label: 'つながり', icon: Users },
+  { key: 'cloud', label: 'クラウド', icon: Cloud },
   { key: 'settings', label: '設定', icon: Settings },
 ];
+
+const NAV_TAB_KEYS = new Set<string>(TABS.map((tab) => tab.key));
+
+function readUrlState(): { tab: NavTab; focus: string | null } {
+  if (typeof window === 'undefined') return { tab: 'today', focus: null };
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  return {
+    tab: tab && NAV_TAB_KEYS.has(tab) ? (tab as NavTab) : 'today',
+    focus: params.get('focus'),
+  };
+}
+
+function buildUrl(tab: NavTab, focus: string | null): string {
+  const params = new URLSearchParams(window.location.search);
+  if (tab === 'today') {
+    params.delete('tab');
+  } else {
+    params.set('tab', tab);
+  }
+  if (focus) {
+    params.set('focus', focus);
+  } else {
+    params.delete('focus');
+  }
+  const query = params.toString();
+  return `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+}
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>('today');
+  const [todayFocusKey, setTodayFocusKey] = useState<string | null>(null);
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -121,6 +153,33 @@ export default function Home() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const applyUrlState = () => {
+      const next = readUrlState();
+      setActiveTab(next.tab);
+      setTodayFocusKey(next.focus);
+      setConsultTarget(null);
+      setExecutionResult(null);
+      setResult(null);
+    };
+
+    applyUrlState();
+    window.addEventListener('popstate', applyUrlState);
+    return () => window.removeEventListener('popstate', applyUrlState);
+  }, []);
+
+  const writeUrl = useCallback((tab: NavTab, focus: string | null, replace = false) => {
+    if (typeof window === 'undefined') return;
+    const next = buildUrl(tab, focus);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (next === current) return;
+    if (replace) {
+      window.history.replaceState(null, '', next);
+    } else {
+      window.history.pushState(null, '', next);
+    }
   }, []);
 
   const fetchHistory = useCallback(async () => {
@@ -204,7 +263,9 @@ export default function Home() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setResult(null);
+    setTodayFocusKey(null);
     setActiveTab('today');
+    writeUrl('today', null, true);
   };
 
   const handleLinkAccount = async (provider: 'google' | 'github') => {
@@ -221,7 +282,9 @@ export default function Home() {
     setResult(newResult);
     setExecutionResult(null);
     setConsultTarget(null);
+    setTodayFocusKey(null);
     setActiveTab('issues');
+    writeUrl('issues', null);
     bumpToday();
     void fetchHistory();
   };
@@ -235,7 +298,9 @@ export default function Home() {
     });
     setResult(null);
     setExecutionResult(null);
+    setTodayFocusKey(null);
     setActiveTab('issues');
+    writeUrl('issues', null);
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -281,7 +346,9 @@ export default function Home() {
       }],
     });
     setExecutionResult(null);
+    setTodayFocusKey(null);
     setActiveTab('issues');
+    writeUrl('issues', null);
   };
 
   const handleNewDiagnosis = () => {
@@ -300,7 +367,19 @@ export default function Home() {
 
   const navigate = (tab: NavTab) => {
     setConsultTarget(null);
+    if (tab === 'today') {
+      setActiveTab(tab);
+      writeUrl(tab, todayFocusKey);
+      return;
+    }
+    setTodayFocusKey(null);
     setActiveTab(tab);
+    writeUrl(tab, null);
+  };
+
+  const handleTodayFocusChange = (key: string | null) => {
+    setTodayFocusKey(key);
+    writeUrl('today', key);
   };
 
   return (
@@ -384,6 +463,8 @@ export default function Home() {
               onConsult={handleConsult}
               refreshKey={todayRefreshKey}
               onDataChanged={bumpToday}
+              focusKey={todayFocusKey}
+              onFocusChange={handleTodayFocusChange}
             />
           )}
 
@@ -504,6 +585,8 @@ export default function Home() {
               )}
             </div>
           )}
+
+          {activeTab === 'cloud' && <CloudPanel />}
 
           {activeTab === 'settings' && (
             <SettingsContent

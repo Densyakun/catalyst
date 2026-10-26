@@ -53,6 +53,10 @@ export interface TodayFocus {
   insight: TodayInsight | null;
 }
 
+export function todayFocusKey(focus: Pick<TodayFocus, 'kind' | 'id'>): string {
+  return `${focus.kind}:${focus.id}`;
+}
+
 export interface TodayStats {
   unsolvedProblems: number;
   solvedProblems: number;

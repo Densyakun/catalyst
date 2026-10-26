@@ -74,4 +74,28 @@ OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 ```
 
 ### 3. データベースのセットアップ
-`supabase_schema.sql` と `supabase_migration_v2.sql` 〜 `supabase_migration_v13.sql` を Supabase SQL Editor で順に実行してください。
+`supabase_schema.sql` と `supabase_migration_v2.sql` 〜 `supabase_migration_v14.sql` を Supabase SQL Editor で順に実行してください。
+
+## 6. クラウド作業（自動改善 + ユーザー依頼）
+
+Cloudflare Workers 上では10分おきの Cron を直接持てないため、`workers/cloud-scheduler` を別 Worker としてデプロイします。
+
+1. アプリ側の環境変数（Cloudflare の Variables and Secrets）を設定する
+   - `GITHUB_CODESPACES_TOKEN`（Codespaces の作成権限）
+   - `CLOUD_GITHUB_REPO`（`owner/repo`）
+   - `CLOUD_CRON_SECRET` / `CLOUD_RUNNER_TOKEN`
+   - `OPENCODE_MODEL`（例: `opencode-go/deepseek-v4.1-flash`）
+   - 必要に応じて `ADMIN_EMAILS` / `ADMIN_USER_IDS`
+2. GitHub の Repository Settings → Codespaces → Secrets に以下を登録する
+   - `CATALYST_APP_URL` / `CATALYST_CLOUD_RUNNER_TOKEN`
+   - `OPENCODE_GO_API_KEY` / `OPENCODE_MODEL`
+3. スケジューラ Worker をデプロイする
+   ```bash
+   cd workers/cloud-scheduler
+   npx wrangler secret put CLOUD_APP_URL
+   npx wrangler secret put CLOUD_CRON_SECRET
+   cd ../..
+   npm run deploy:scheduler
+   ```
+
+10分おきに `/api/cloud/cron` が実行され、アプリの GitHub Issue（`CLOUD_AUTO_ISSUE_LABEL` で絞り込み可能）がクラウド作業環境で解決されます。ユーザーは「クラウド」タブから任意の作業を依頼できます。実行時間とトークン使用量からクレジットが計算されます。

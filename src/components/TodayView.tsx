@@ -19,11 +19,12 @@ import {
   Target,
   Zap,
 } from 'lucide-react';
+import { todayFocusKey } from '@/lib/types/today';
 import type { TodayData, TodayFocus, TodayUrgency } from '@/lib/types/today';
 import ExecutionView, { type ExecutionResultData } from './ExecutionView';
 import Onboarding from './Onboarding';
 
-export type NavTab = 'today' | 'issues' | 'plan' | 'connect' | 'settings';
+export type NavTab = 'today' | 'issues' | 'plan' | 'connect' | 'cloud' | 'settings';
 
 interface TodayViewProps {
   username: string;
@@ -31,6 +32,8 @@ interface TodayViewProps {
   onConsult?: (focus: TodayFocus) => void;
   refreshKey?: number;
   onDataChanged?: () => void;
+  focusKey?: string | null;
+  onFocusChange?: (key: string | null) => void;
 }
 
 const URGENCY_META: Record<TodayUrgency, { label: string; color: string; bg: string; border: string }> = {
@@ -39,11 +42,18 @@ const URGENCY_META: Record<TodayUrgency, { label: string; color: string; bg: str
   low: { label: '通常', color: '#6b7280', bg: 'rgba(107, 114, 128, 0.15)', border: 'rgba(107, 114, 128, 0.35)' },
 };
 
-export default function TodayView({ username, onNavigate, onConsult, refreshKey = 0, onDataChanged }: TodayViewProps) {
+export default function TodayView({
+  username,
+  onNavigate,
+  onConsult,
+  refreshKey = 0,
+  onDataChanged,
+  focusKey = null,
+  onFocusChange,
+}: TodayViewProps) {
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   const [capture, setCapture] = useState('');
@@ -92,7 +102,13 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
     return [data.focus, ...data.upNext].filter((item): item is TodayFocus => Boolean(item));
   }, [data]);
 
-  const focus = candidates.find((item) => item.id === selectedId) ?? candidates[0] ?? null;
+  const focus = candidates.find((item) => todayFocusKey(item) === focusKey) ?? candidates[0] ?? null;
+  const defaultFocusKey = data?.focus ? todayFocusKey(data.focus) : null;
+  const currentFocusKey = focus ? todayFocusKey(focus) : null;
+
+  const selectFocus = (key: string | null) => {
+    onFocusChange?.(key);
+  };
 
   const executeFocus = async () => {
     if (!focus?.action || !focus.problem || executing) return;
@@ -126,7 +142,7 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      setSelectedId(null);
+      selectFocus(null);
       await load();
       onDataChanged?.();
     } catch (err) {
@@ -193,7 +209,7 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || '緊急度を更新できませんでした');
       }
-      setSelectedId(null);
+      selectFocus(null);
       await load();
       onDataChanged?.();
     } catch (err) {
@@ -445,6 +461,7 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
       ) : focus ? (
         <FocusCard
           focus={focus}
+          heading={currentFocusKey === defaultFocusKey ? '今日の1つ' : '選んだ候補'}
           executing={executing}
           onExecute={() => void executeFocus()}
           onInsightAction={(action) => void updateInsight(action)}
@@ -506,48 +523,66 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
         </div>
       )}
 
-      {data && data.upNext.length > 0 && (
+      {data && candidates.length > 0 && (
         <div className="glass-panel" style={{ padding: '0.8rem' }}>
-          <h3 style={{ fontSize: '0.85rem', marginBottom: '0.4rem' }}>次に取り組む候補</h3>
+          <h3 style={{ fontSize: '0.85rem', marginBottom: '0.1rem' }}>今日の候補</h3>
+          <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+            選ぶと上の「今日の1つ」が切り替わります。ここからいつでも元の候補に戻せます。
+          </p>
           <div style={{ display: 'grid', gap: '0.4rem' }}>
-            {data.upNext.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setSelectedId(item.id);
-                  setExecution(null);
-                }}
-                style={{
-                  textAlign: 'left',
-                  padding: '0.5rem 0.6rem',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '8px',
-                  color: 'white',
-                  fontSize: '0.78rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                }}
-              >
-                <span
-                  style={{
-                    width: '7px',
-                    height: '7px',
-                    borderRadius: '50%',
-                    background: URGENCY_META[item.urgency].color,
-                    flexShrink: 0,
+            {candidates.map((item) => {
+              const key = todayFocusKey(item);
+              const isCurrent = key === currentFocusKey;
+              const isDefault = key === defaultFocusKey;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    selectFocus(key);
+                    setExecution(null);
                   }}
-                />
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.title}
-                </span>
-                <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', flexShrink: 0 }}>
-                  {item.kind === 'problem' ? '課題' : '気づき'}
-                </span>
-              </button>
-            ))}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.5rem 0.6rem',
+                    background: isCurrent ? 'rgba(99, 102, 241, 0.16)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${isCurrent ? 'rgba(99, 102, 241, 0.55)' : 'var(--glass-border)'}`,
+                    borderRadius: '8px',
+                    color: 'white',
+                    fontSize: '0.78rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      background: URGENCY_META[item.urgency].color,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.title}
+                  </span>
+                  {isCurrent ? (
+                    <span style={{ fontSize: '0.62rem', color: 'var(--accent-color)', flexShrink: 0 }}>
+                      表示中
+                    </span>
+                  ) : isDefault ? (
+                    <span style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', flexShrink: 0 }}>
+                      今日の1つ
+                    </span>
+                  ) : null}
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', flexShrink: 0 }}>
+                    {item.kind === 'problem' ? '課題' : '気づき'}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -557,6 +592,7 @@ export default function TodayView({ username, onNavigate, onConsult, refreshKey 
 
 function FocusCard({
   focus,
+  heading,
   executing,
   onExecute,
   onInsightAction,
@@ -564,6 +600,7 @@ function FocusCard({
   onNotUrgent,
 }: {
   focus: TodayFocus;
+  heading: string;
   executing: boolean;
   onExecute: () => void;
   onInsightAction: (action: 'proceed' | 'hold') => void;
@@ -587,7 +624,7 @@ function FocusCard({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
         <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          今日の1つ
+          {heading}
         </span>
         <span
           style={{

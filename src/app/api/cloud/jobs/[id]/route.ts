@@ -1,0 +1,61 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase-server';
+import { createAdminClient } from '@/lib/supabase-admin';
+import { isAdminUser } from '@/lib/admin';
+import { getCloudConfig } from '@/lib/cloud/config';
+import { stopCodespace } from '@/lib/cloud/github';
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const admin = createAdminClient();
+    const { data: job } = await admin
+      .from('cloud_jobs')
+      .select('id, user_id, status, codespace_name')
+      .eq('id', id)
+      .maybeSingle();
+    if (!job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    if (job.user_id !== user.id && !isAdminUser(user)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (!['queued', 'provisioning', 'running'].includes(String(job.status))) {
+      return NextResponse.json({ error: 'この作業はすでに終了しています' }, { status: 400 });
+    }
+
+    await admin
+      .from('cloud_jobs')
+      .update({
+        status: 'cancelled',
+        error: 'ユーザーによりキャンセルされました',
+        finished_at: new Date().toISOString(),
+        payment_status: 'free',
+      })
+      .eq('id', id);
+
+    const config = getCloudConfig();
+    if (job.codespace_name && config.githubToken) {
+      try {
+        await stopCodespace(config.githubToken, String(job.codespace_name));
+      } catch (error) {
+        console.error('Cancel stop codespace error:', error);
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
