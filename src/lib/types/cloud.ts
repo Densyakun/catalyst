@@ -43,6 +43,7 @@ export interface CloudJob {
   security_flags?: string[];
   human_approved?: boolean;
   keep_codespace?: boolean;
+  progress_stage?: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

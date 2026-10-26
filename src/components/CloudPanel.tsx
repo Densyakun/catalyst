@@ -27,6 +27,16 @@ const STATUS_META: Record<CloudJobStatus, { label: string; color: string; bg: st
   timed_out: { label: '時間切れ', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
 };
 
+const STAGE_LABELS: Record<string, string> = {
+  claimed: '受付',
+  reset: 'リポジトリ準備',
+  sandbox: '作業環境の準備',
+  agent: 'AIが実装中',
+  review: '変更を検証中',
+  publish: '公開準備中',
+  done: '完了',
+};
+
 function formatDate(value: string | null): string {
   if (!value) return '';
   return new Date(value).toLocaleString('ja-JP', {
@@ -202,7 +212,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
             {data.auto_enabled ? '有効' : '無効'}
             {data.auto_repo ? ` / 対象: ${data.auto_repo}` : ''}
             {` / 同時実行: ${data.max_concurrent}`}
-            {` / 自動PR: ${data.auto_push ? '有効' : '無効（承認待ち）'}`}
+            {` / 自動PR: ${data.auto_push ? '有効（安全検査後にPRを作成）' : '無効（承認待ち）'}`}
           </p>
           <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
             10分おきにアプリの課題を確認します。危険な指示・秘密情報・保護対象ファイルの変更を検出した場合は自動実行を停止します。
@@ -353,6 +363,11 @@ function JobRow({
         <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg }}>
           {meta.label}
         </span>
+        {isAdmin && job.status === 'running' && job.progress_stage && (
+          <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+            {STAGE_LABELS[job.progress_stage] ?? job.progress_stage}
+          </span>
+        )}
         {active && (
           <button
             type="button"

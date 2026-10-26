@@ -33,6 +33,7 @@ export function getCloudConfig() {
     issueLabel: text(process.env.CLOUD_AUTO_ISSUE_LABEL),
     maxIssuesPerTick: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_MAX_ISSUES, 4))),
     autoDailyLimit: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_DAILY_LIMIT, 4))),
+    autoRetryCooldownMinutes: Math.max(0, Math.floor(numberValue(process.env.CLOUD_AUTO_RETRY_COOLDOWN_MINUTES, 45))),
     maxConcurrent: Math.max(1, Math.floor(numberValue(process.env.CLOUD_MAX_CONCURRENT, 1))),
     machine: text(process.env.CLOUD_CODESPACE_MACHINE, DEFAULT_MACHINE),
     devcontainerPath: text(process.env.CLOUD_DEVCONTAINER_PATH, DEFAULT_DEVCONTAINER),
@@ -42,7 +43,11 @@ export function getCloudConfig() {
     runnerIdleMinutes: Math.max(1, Math.floor(numberValue(process.env.CLOUD_RUNNER_IDLE_MINUTES, 15))),
     keepReviewCodespace: boolValue(process.env.CLOUD_KEEP_REVIEW_CODESPACE, false),
     jobMaxMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_JOB_MAX_MINUTES, 30))),
-    autoPush: boolValue(process.env.CLOUD_AUTO_PUSH, false),
+    jobStallMinutes: Math.max(2, Math.floor(numberValue(process.env.CLOUD_JOB_STALL_MINUTES, 8))),
+    jobTimeoutGraceMinutes: Math.max(1, Math.floor(numberValue(process.env.CLOUD_JOB_TIMEOUT_GRACE_MINUTES, 5))),
+    // 安全検査（秘密情報・保護対象・差分サイズ・型チェック）を通過した変更は
+    // PR として公開する。マージは人間が行う。
+    autoPush: boolValue(process.env.CLOUD_AUTO_PUSH, true),
     maxDiffLines: Math.max(50, Math.floor(numberValue(process.env.CLOUD_MAX_DIFF_LINES, 1500))),
     sandboxUser: text(process.env.CLOUD_SANDBOX_USER, 'agent'),
     model: text(process.env.OPENCODE_MODEL, DEFAULT_MODEL),

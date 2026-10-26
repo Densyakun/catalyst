@@ -66,6 +66,10 @@ function sanitizeCommitText(text, maxLength = 120) {
 function minimalEnv(home) {
   return {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_DATA_HOME: path.join(home, '.local', 'share'),
+    XDG_STATE_HOME: path.join(home, '.local', 'state'),
+    XDG_CACHE_HOME: path.join(home, '.cache'),
     PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
     LANG: process.env.LANG || 'C.UTF-8',
     LC_ALL: process.env.LC_ALL || 'C.UTF-8',
@@ -75,6 +79,11 @@ function minimalEnv(home) {
     CI: '1',
     GIT_TERMINAL_PROMPT: '0',
     GH_PROMPT_DISABLED: '1',
+    OPENCODE_DISABLE_AUTOUPDATE: '1',
+    OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
+    OPENCODE_DISABLE_SHARE: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE: '1',
+    OPENCODE_DISABLE_TERMINAL_TITLE: '1',
   };
 }
 
@@ -102,13 +111,16 @@ function run(command, args, options = {}) {
     let stderr = '';
     let stdoutBytes = 0;
     let truncated = false;
+    let timedOut = false;
     let timer;
 
-    if (options.timeoutMs) {
+    const timeoutMs = options.timeoutMs === undefined ? 120000 : options.timeoutMs;
+    if (timeoutMs > 0) {
       timer = setTimeout(() => {
+        timedOut = true;
         child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5000);
-      }, options.timeoutMs);
+        setTimeout(() => child.kill('SIGKILL'), 5000).unref?.();
+      }, timeoutMs);
     }
 
     child.stdout.on('data', (chunk) => {
@@ -127,10 +139,20 @@ function run(command, args, options = {}) {
       if (timer) clearTimeout(timer);
       reject(error);
     });
-    child.on('close', (code, signal) => {
+    let settled = false;
+    let exitFallbackTimer = null;
+    const finish = (code, signal) => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
-      resolve({ code: code ?? 1, signal, stdout, stderr, truncated });
+      if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
+      resolve({ code: timedOut ? 124 : (code ?? 1), signal, stdout, stderr, truncated, timedOut });
+    };
+    child.on('exit', (code) => {
+      exitFallbackTimer = setTimeout(() => finish(code, null), 3000);
+      exitFallbackTimer.unref?.();
     });
+    child.on('close', (code, signal) => finish(code, signal));
 
     if (options.input != null) {
       child.stdin.write(options.input);
@@ -159,20 +181,36 @@ async function writeAsUser(user, filePath, content) {
   );
 }
 
-async function api(pathname, body) {
-  const res = await fetch(`${APP_URL}${pathname}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${RUNNER_TOKEN}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(json.error || `API ${res.status}`);
+async function api(pathname, body, options = {}) {
+  const url = `${APP_URL}${pathname}`;
+  const attempts = Math.max(1, Number(options.attempts) || 3);
+  let lastError = new Error(`API ${pathname} failed`);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${RUNNER_TOKEN}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Number(options.timeoutMs) || 20000),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || `API ${res.status}`);
+      }
+      return json;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < attempts) {
+        await sleep(1500 * attempt);
+      }
+    }
   }
-  return json;
+
+  throw lastError;
 }
 
 function opencodeConfig() {
@@ -293,19 +331,18 @@ async function prepareSandbox(job, user) {
 
   await writeOpencodeHome(home, user);
 
-  return { home, workspace };
+  return { home, workspace, root, cleanup: true };
 }
 
 async function preparePrivileged(job) {
   if (!/^[0-9a-f-]{36}$/i.test(String(job.id))) {
     throw new Error('job id is invalid');
   }
-  const root = path.join(os.tmpdir(), `katalyst-cloud-${job.id}`);
-  const home = path.join(root, 'home');
-  await mkdir(home, { recursive: true, mode: 0o700 });
-  await chmod(root, 0o700);
+  // app_issue は Codespace の専用ユーザーとして実行する。
+  // 認証とモデルカタログは通常の HOME をそのまま使う（--pure と権限設定で分離する）。
+  const home = os.homedir();
   await writeOpencodeHome(home, null);
-  return { home, workspace: REPO_DIR };
+  return { home, workspace: REPO_DIR, root: null, cleanup: false };
 }
 
 async function runOpencode(job, context) {
@@ -317,6 +354,9 @@ async function runOpencode(job, context) {
     job.model || MODEL,
     '--auto',
     '--pure',
+    '--print-logs',
+    '--log-level',
+    'ERROR',
     job.prompt,
   ];
   const env = minimalEnv(context.home);
@@ -343,25 +383,77 @@ async function runOpencode(job, context) {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
+  const parsedStart = job.started_at ? Date.parse(job.started_at) : NaN;
+  const startedAtMs = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+
   let inputTokens = 0;
   let outputTokens = 0;
   let costUsd = 0;
   let text = '';
   let timedOut = false;
+  let stalled = false;
+  let lastActivityAt = Date.now();
+  let stderrTail = '';
+  const errors = [];
 
   const maxMinutes = Number(job.max_minutes) || 30;
-  const timer = setTimeout(() => {
+  const stallMinutes = Number(job.stall_minutes) || 8;
+
+  const usageSnapshot = () => ({
+    runtime_seconds: Math.round((Date.now() - startedAtMs) / 1000),
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cost_usd: Number(costUsd.toFixed(6)),
+  });
+
+  let lastProgressAt = 0;
+  const reportProgress = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastProgressAt < 30000) return;
+    lastProgressAt = now;
+    void api(
+      '/api/cloud/agent/progress',
+      { job_id: job.id, stage: 'agent', usage: usageSnapshot() },
+      { attempts: 1, timeoutMs: 10000 },
+    ).catch(() => {});
+  };
+
+  let finishFromWatchdog = null;
+
+  const deadlineTimer = setTimeout(() => {
     timedOut = true;
+    stderrTail += `\n[runner] 実行時間の上限 (${maxMinutes}分) に達したため停止します`;
+    console.error(`Job ${job.id}: timeout after ${maxMinutes} minutes`);
     child.kill('SIGTERM');
-    setTimeout(() => child.kill('SIGKILL'), 10000);
+    setTimeout(() => {
+      child.kill('SIGKILL');
+      finishFromWatchdog?.(124);
+    }, 10000).unref?.();
   }, maxMinutes * 60 * 1000);
 
-  const heartbeat = setInterval(() => {
-    void api('/api/cloud/agent/heartbeat', { job_id: job.id }).catch(() => {});
-  }, 60000);
+  const progressTimer = setInterval(() => reportProgress(true), 30000);
+
+  // AI が応答を返さないまま無言で待ち続けるのを防ぐ。
+  const stallTimer = setInterval(() => {
+    if (stalled || timedOut) return;
+    if (Date.now() - lastActivityAt >= stallMinutes * 60 * 1000) {
+      stalled = true;
+      stderrTail += `\n[runner] ${stallMinutes}分間 AI から応答がないため停止します`;
+      console.error(`Job ${job.id}: stalled for ${stallMinutes} minutes`);
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        child.kill('SIGKILL');
+        finishFromWatchdog?.(124);
+      }, 10000).unref?.();
+      clearInterval(stallTimer);
+    }
+  }, 20000);
+
+  reportProgress(true);
 
   const rl = readline.createInterface({ input: child.stdout });
   rl.on('line', (line) => {
+    lastActivityAt = Date.now();
     if (!line.trim()) return;
     try {
       const event = JSON.parse(line);
@@ -374,6 +466,13 @@ async function runOpencode(job, context) {
         inputTokens += Number(tokens.input || 0);
         outputTokens += Number(tokens.output || 0);
         costUsd += Number(event.part.cost || 0);
+        reportProgress(true);
+      } else if (event.type === 'error' && event.error) {
+        const message = event.error?.data?.message
+          || event.error?.name
+          || 'AI の呼び出しに失敗しました';
+        console.error(`[opencode] ${message}`);
+        if (errors.length < 5) errors.push(String(message));
       }
     } catch {
       console.error(line);
@@ -382,33 +481,59 @@ async function runOpencode(job, context) {
 
   let stderrBytes = 0;
   child.stderr.on('data', (chunk) => {
+    lastActivityAt = Date.now();
     stderrBytes += chunk.length;
+    stderrTail = `${stderrTail}${chunk.toString()}`.slice(-8000);
     if (stderrBytes <= 100000) {
       process.stderr.write(chunk);
     }
   });
 
   const exitCode = await new Promise((resolve, reject) => {
+    let settled = false;
+    let exitFallbackTimer = null;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
+      resolve(code);
+    };
+    finishFromWatchdog = finish;
+
     child.on('error', (error) => {
-      clearTimeout(timer);
-      clearInterval(heartbeat);
+      if (settled) return;
+      settled = true;
+      if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
+      clearTimeout(deadlineTimer);
+      clearInterval(progressTimer);
+      clearInterval(stallTimer);
       rl.close();
       reject(error);
     });
-    child.on('close', (code) => resolve(code ?? 1));
+    // 孫プロセスが stdout を握ったままでも、プロセス終了後は待ち続けない。
+    child.on('exit', (code) => {
+      exitFallbackTimer = setTimeout(() => finish(code ?? 1), 5000);
+      exitFallbackTimer.unref?.();
+    });
+    child.on('close', (code) => finish(code ?? 1));
   });
 
-  clearTimeout(timer);
-  clearInterval(heartbeat);
+  clearTimeout(deadlineTimer);
+  clearInterval(progressTimer);
+  clearInterval(stallTimer);
   rl.close();
 
   return {
     exitCode,
     timedOut,
+    stalled,
     text: text.trim(),
     inputTokens,
     outputTokens,
     costUsd,
+    errors,
+    stderrTail: stderrTail.trim(),
+    usage: usageSnapshot(),
   };
 }
 
@@ -650,7 +775,19 @@ async function publishIssueBranch(job, summary) {
 
   await run('git', ['checkout', '-B', branch], { cwd: REPO_DIR });
   await run('git', ['add', '-A'], { cwd: REPO_DIR });
-  const commit = await run('git', ['commit', '-m', message], { cwd: REPO_DIR });
+  const commit = await run(
+    'git',
+    [
+      '-c',
+      'user.name=Densyakun',
+      '-c',
+      'user.email=densyakun1128@gmail.com',
+      'commit',
+      '-m',
+      message,
+    ],
+    { cwd: REPO_DIR },
+  );
   if (commit.code !== 0) {
     throw new Error(commit.stderr.trim() || 'コミットに失敗しました');
   }
@@ -735,10 +872,8 @@ async function reportJob(job, payload) {
 }
 
 async function cleanupJobContext(job, context) {
-  if (!context) return;
-  const root = job.kind === 'user_task'
-    ? path.dirname(context.workspace)
-    : path.dirname(context.home);
+  if (!context?.cleanup || !context.root) return;
+  const root = context.root;
   if (!path.basename(root).startsWith('katalyst-cloud-')) return;
   try {
     if (job.kind === 'user_task') {
@@ -754,26 +889,94 @@ async function cleanupJobContext(job, context) {
   }
 }
 
+async function reportStage(job, stage, usage) {
+  const parsedStart = job.started_at ? Date.parse(job.started_at) : NaN;
+  const startedAt = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+  console.log(`Job ${job.id}: stage=${stage}`);
+  try {
+    await api(
+      '/api/cloud/agent/progress',
+      {
+        job_id: job.id,
+        stage,
+        usage: {
+          runtime_seconds: Math.round((Date.now() - startedAt) / 1000),
+          input_tokens: usage?.inputTokens || 0,
+          output_tokens: usage?.outputTokens || 0,
+          cost_usd: usage?.costUsd || 0,
+        },
+      },
+      { attempts: 1, timeoutMs: 10000 },
+    );
+  } catch (error) {
+    console.error('Progress report failed:', error);
+  }
+}
+
+function resultDiagnostics(result) {
+  const parts = [];
+  if (result?.errors?.length) {
+    parts.push(`AIエラー: ${result.errors.map((value) => safeDetail(value, 1000)).join(' / ')}`);
+  }
+  if (result?.stderrTail) {
+    parts.push('', '--- 診断ログ（末尾） ---', safeDetail(result.stderrTail, 4000));
+  }
+  return parts.join('\n');
+}
+
+async function preflightOpencode(job, context) {
+  const env = minimalEnv(context.home);
+  const model = job.model || MODEL;
+  const asUser = job.kind === 'user_task' ? (job.sandbox_user || 'agent') : null;
+  const result = asUser
+    ? await runAsUser(asUser, 'opencode', ['models', '--pure'], {
+        cwd: context.workspace,
+        env,
+        timeoutMs: 45000,
+      })
+    : await run('opencode', ['models', '--pure'], {
+        cwd: context.workspace,
+        env,
+        timeoutMs: 45000,
+      });
+  if (result.timedOut) {
+    throw new Error('opencode の起動がタイムアウトしました。ネットワークと認証設定を確認してください');
+  }
+  if (result.code !== 0) {
+    throw new Error(`opencode を起動できませんでした: ${(result.stderr || result.stdout).trim().slice(0, 500)}`);
+  }
+  const models = result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (models.length > 0 && !models.includes(model)) {
+    throw new Error(`モデル ${model} が見つかりません。OPENCODE_GO_API_KEY を確認してください`);
+  }
+  return model;
+}
+
 async function processJob(job) {
   console.log(`Job ${job.id} (${job.kind}): ${job.title}`);
   const startedAt = Date.now();
   let context = null;
+  const emptyUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  let usage = emptyUsage;
 
   try {
+  await reportStage(job, 'claimed', emptyUsage);
 
   if (job.kind === 'app_issue') {
+    await reportStage(job, 'reset', emptyUsage);
     const reset = await resetRepoForJob();
     if (!reset.ok) {
       await reportJob(job, {
         status: 'failed',
         summary: '作業環境の初期化に失敗しました。',
         error: 'repo_reset_failed',
-        usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        usage: emptyUsage,
       });
       return;
     }
   }
 
+  await reportStage(job, 'sandbox', emptyUsage);
   try {
     context = job.kind === 'user_task'
       ? await prepareSandbox(job, job.sandbox_user || 'agent')
@@ -785,13 +988,15 @@ async function processJob(job) {
       status: 'failed',
       summary: '安全な作業環境を準備できませんでした。',
       error: 'sandbox_setup_failed',
-      usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      detail: safeDetail(message, 2000),
+      usage: emptyUsage,
     });
     return;
   }
 
   let result;
   try {
+    await preflightOpencode(job, context);
     result = await runOpencode(job, context);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -800,22 +1005,36 @@ async function processJob(job) {
       status: 'failed',
       summary: '作業を実行できませんでした。',
       error: 'opencode_failed',
-      usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      detail: safeDetail(message, 2000),
+      usage: emptyUsage,
     });
     return;
   }
 
-  const usage = {
+  usage = {
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     costUsd: result.costUsd,
   };
   const text = sanitizeText(result.text).slice(0, 12000);
+  const diagnostics = resultDiagnostics(result);
+
+  if (result.stalled) {
+    await reportJob(job, {
+      status: 'failed',
+      summary: 'AI から応答がないまま停止しました。',
+      detail: [safeDetail(text), '', diagnostics].filter(Boolean).join('\n'),
+      error: 'opencode_stalled',
+      usage,
+    });
+    return;
+  }
 
   if (result.timedOut) {
     await reportJob(job, {
       status: 'timed_out',
       summary: '実行時間の上限を超えました。',
+      detail: [safeDetail(text), '', diagnostics].filter(Boolean).join('\n'),
       error: 'timeout',
       usage,
     });
@@ -826,8 +1045,19 @@ async function processJob(job) {
     await reportJob(job, {
       status: 'failed',
       summary: '作業を完了できませんでした。',
-      detail: safeDetail(text),
+      detail: [safeDetail(text), '', diagnostics].filter(Boolean).join('\n'),
       error: `opencode exited with code ${result.exitCode}`,
+      usage,
+    });
+    return;
+  }
+
+  if (result.errors.length > 0 && !text) {
+    await reportJob(job, {
+      status: 'failed',
+      summary: 'AI の呼び出しに失敗しました。',
+      detail: diagnostics,
+      error: safeDetail(result.errors[0], 500),
       usage,
     });
     return;
@@ -835,7 +1065,9 @@ async function processJob(job) {
 
   if (job.kind === 'user_task') {
     const files = await listSandboxFiles(job.sandbox_user || 'agent', context.workspace).catch(() => []);
-    const detail = [safeDetail(text), '', `ファイル: ${files.join(', ') || '(なし)'}`].join('\n');
+    const detail = [safeDetail(text), '', `ファイル: ${files.join(', ') || '(なし)'}`, diagnostics]
+      .filter(Boolean)
+      .join('\n');
     await reportJob(job, {
       status: 'succeeded',
       summary: safeSummary(text) || '完了しました',
@@ -845,13 +1077,15 @@ async function processJob(job) {
     return;
   }
 
+  await reportStage(job, 'review', usage);
   const changes = await gitStatus();
   if (!changes) {
+    const aiError = result.errors.length > 0 ? safeDetail(result.errors[0], 500) : '';
     await reportJob(job, {
       status: 'failed',
-      summary: 'コードの変更はありませんでした。',
-      detail: safeDetail(text),
-      error: 'no_changes',
+      summary: aiError ? 'AI の呼び出しに失敗しました。' : 'コードの変更はありませんでした。',
+      detail: [safeDetail(text), '', diagnostics].filter(Boolean).join('\n'),
+      error: aiError || 'no_changes',
       usage,
     });
     return;
@@ -972,6 +1206,7 @@ async function processJob(job) {
   }
 
   try {
+    await reportStage(job, 'publish', usage);
     const published = await publishIssueBranch(job, text);
     await reportJob(job, {
       status: 'succeeded',
@@ -995,6 +1230,20 @@ async function processJob(job) {
 
   const elapsed = Math.round((Date.now() - startedAt) / 1000);
   console.log(`Job ${job.id} finished in ${elapsed}s`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Job processing failed:', error);
+    try {
+      await reportJob(job, {
+        status: 'failed',
+        summary: '作業中に予期しないエラーが発生しました。',
+        detail: safeDetail(message, 3000),
+        error: 'runner_error',
+        usage,
+      });
+    } catch (reportError) {
+      console.error('Reporting runner error failed:', reportError);
+    }
   } finally {
     await cleanupJobContext(job, context);
   }
@@ -1012,6 +1261,7 @@ async function main() {
 
   let idleMinutes = 15;
   let idleSince = Date.now();
+  let inactiveChecks = 0;
 
   while (true) {
     let response;
@@ -1028,9 +1278,15 @@ async function main() {
 
     if (!response.job) {
       if (response.session_active === false) {
-        console.log('Session is no longer active');
-        break;
+        inactiveChecks += 1;
+        if (inactiveChecks >= 3) {
+          console.log('Session is no longer active');
+          break;
+        }
+        await sleep(10000);
+        continue;
       }
+      inactiveChecks = 0;
       if (Date.now() - idleSince >= idleMinutes * 60 * 1000) {
         console.log(`No jobs for ${idleMinutes} minutes; stopping the codespace`);
         try {
@@ -1045,7 +1301,11 @@ async function main() {
     }
 
     idleSince = Date.now();
-    await processJob(response.job);
+    try {
+      await processJob(response.job);
+    } catch (error) {
+      console.error('Unexpected job processing failure:', error);
+    }
     idleSince = Date.now();
   }
 }

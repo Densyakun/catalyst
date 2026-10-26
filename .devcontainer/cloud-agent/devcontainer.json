@@ -5,5 +5,5 @@
   },
   "remoteUser": "node",
   "postCreateCommand": "npm ci || true",
-  "postStartCommand": "bash -lc 'nohup node scripts/cloud-runner.mjs > /tmp/katalyst-cloud.log 2>&1 &'"
+  "postStartCommand": "bash scripts/cloud-runner-supervisor.sh"
 }

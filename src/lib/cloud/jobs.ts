@@ -42,7 +42,11 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
     output_tokens: isAdmin ? num(row.output_tokens) : undefined,
     cost_usd: isAdmin ? num(row.cost_usd) : undefined,
     result_summary: row.result_summary ? String(row.result_summary) : null,
-    result_detail: row.result_detail ? String(row.result_detail) : undefined,
+    result_detail: row.result_detail
+      ? String(row.result_detail)
+      : metadata.detail
+        ? String(metadata.detail)
+        : undefined,
     error: row.error ? String(row.error) : null,
     blocked_stage: isAdmin && metadata.blocked_stage
       ? (String(metadata.blocked_stage) as CloudBlockedStage)
@@ -52,6 +56,7 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
       : undefined,
     human_approved: isAdmin ? metadata.human_approved === true : undefined,
     keep_codespace: isAdmin ? metadata.keep_codespace === true : undefined,
+    progress_stage: isAdmin && metadata.stage ? String(metadata.stage) : null,
     created_at: String(row.created_at),
     started_at: row.started_at ? String(row.started_at) : null,
     finished_at: row.finished_at ? String(row.finished_at) : null,
@@ -95,13 +100,19 @@ export function buildAppIssuePrompt(issue: GitHubIssue, repo: string): string {
     untrustedBlock('UNTRUSTED_ISSUE', issue.body || '(本文なし)', 12000),
     '',
     '進め方:',
-    '1. 関連するコードとテストを調査する',
+    '1. 関連するコードとテストを最小限の探索で特定する',
     '2. 既存の設計・命名・スタイルに合わせて実装する',
     '3. 変更内容と、開発者が確認すべき点を最後に簡潔にまとめる',
     '',
+    '重要（時間内に成果を出す）:',
+    '- 1回の実行で完了できるのは小さな改善です。15分以内に終わる範囲（目安: 1〜3ファイル、200行以内）に絞ってください。',
+    '- Issue が大きすぎる場合は、全体を実装しようとせず、独立して価値があり安全な最小の改善を1つだけ実装してください。',
+    '- 残りの作業は、最終報告に「未対応」として箇条書きで残してください。実装しないまま探索だけを続けないでください。',
+    '- 探索は手早く切り上げ、早めに編集を始めてください。',
+    '',
     '制約:',
     '- シェルコマンドは実行できません（bash は禁止されています）。ファイルの読み書き・検索のみで実装してください。',
-    '- テストやビルドは実行しないでください。検証は後続のCIで行います。',
+    '- テストやビルドは実行しないでください（型チェックは後続処理で行います）。',
     '- コミットや push、PR 作成はしないでください（後続処理が行います）。',
     '- 変更はリポジトリ内に限定し、外部ディレクトリへアクセスしないでください。',
     '- 依存パッケージの追加・削除・アップグレード、CI・エージェント設定の変更は行わないでください。',
@@ -162,6 +173,14 @@ export async function enqueueAppIssues(): Promise<number> {
   });
   if (issues.length === 0) return 0;
 
+  // 大きな企画（epic）よりも、短く具体的な Issue を優先する。
+  // クラウドエージェントは1回の実行で小さな改善を完了させる必要がある。
+  const candidates = [...issues].sort((a, b) => {
+    const aEpic = a.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
+    const bEpic = b.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
+    if (aEpic !== bEpic) return aEpic - bEpic;
+    return (a.body?.length || 0) - (b.body?.length || 0);
+  });
   const admin = createAdminClient();
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
@@ -180,12 +199,33 @@ export async function enqueueAppIssues(): Promise<number> {
     .in('status', ['queued', 'provisioning', 'running', 'succeeded', 'blocked', 'cancelled']);
   const known = new Set((existing || []).map((row) => String(row.dedupe_key)));
 
+  // 失敗・時間切れを繰り返した Issue は、同じ Issue ばかりに枠を使わないよう
+  // 一定時間クールダウンしてから再実行する。
+  const retryWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentFailures } = await admin
+    .from('cloud_jobs')
+    .select('dedupe_key, finished_at, created_at')
+    .in('dedupe_key', dedupeKeys)
+    .in('status', ['failed', 'timed_out'])
+    .gte('created_at', retryWindowStart);
+  const lastFailureAt = new Map<string, number>();
+  for (const row of recentFailures || []) {
+    const key = String(row.dedupe_key);
+    const raw = row.finished_at || row.created_at;
+    const at = raw ? Date.parse(String(raw)) : NaN;
+    if (!Number.isFinite(at)) continue;
+    lastFailureAt.set(key, Math.max(lastFailureAt.get(key) || 0, at));
+  }
+  const retryCooldownMs = config.autoRetryCooldownMinutes * 60 * 1000;
+
   let created = 0;
-  for (const issue of issues) {
+  for (const issue of candidates) {
     if (created >= config.maxIssuesPerTick) break;
 
     const dedupeKey = `github:${config.repo}#${issue.number}`;
     if (known.has(dedupeKey)) continue;
+    const lastFailure = lastFailureAt.get(dedupeKey);
+    if (lastFailure && Date.now() - lastFailure < retryCooldownMs) continue;
 
     const rawIssue = `${issue.title}\n${issue.body || ''}`;
     const flags = Array.from(new Set([
@@ -292,15 +332,18 @@ export async function sweepStaleJobs(): Promise<number> {
   const config = getCloudConfig();
   const admin = createAdminClient();
   const now = Date.now();
-  const staleRunningCutoff = new Date(now - config.jobMaxMinutes * 60 * 1000).toISOString();
+  const staleHeartbeatCutoff = now - 2 * 60 * 1000;
+  const deadHeartbeatCutoff = now - 10 * 60 * 1000;
+  const runningLookback = new Date(now - 10 * 60 * 1000).toISOString();
   const staleProvisioningCutoff = new Date(now - 15 * 60 * 1000).toISOString();
 
-  const [{ data: staleRunning }, { data: staleProvisioning }] = await Promise.all([
+  const [{ data: runningRows }, { data: staleProvisioning }] = await Promise.all([
     admin
       .from('cloud_jobs')
       .select('*')
       .eq('status', 'running')
-      .lt('started_at', staleRunningCutoff),
+      .lt('started_at', runningLookback)
+      .limit(50),
     admin
       .from('cloud_jobs')
       .select('*')
@@ -308,17 +351,40 @@ export async function sweepStaleJobs(): Promise<number> {
       .lt('started_at', staleProvisioningCutoff),
   ]);
 
-  const rows = [...(staleRunning || []), ...(staleProvisioning || [])] as Row[];
+  // ランナーがまだ生きている（ハートビートが新しい）ジョブは、
+  // ランナー自身のタイムアウト報告を待つ。ここで打ち切ると
+  // 実使用トークン数が 0 で上書きされてしまう。
+  // ハートビートが長時間途絶えている場合はランナーが落ちているとみなす。
+  const staleRunning = ((runningRows || []) as Row[]).filter((job) => {
+    const last = job.heartbeat_at || job.started_at;
+    const lastMs = last ? Date.parse(String(last)) : NaN;
+    const startedMs = job.started_at ? Date.parse(String(job.started_at)) : NaN;
+    if (!Number.isFinite(lastMs)) return true;
+    if (lastMs < deadHeartbeatCutoff) return true;
+    const hardDeadline = Number.isFinite(startedMs)
+      ? startedMs + (config.jobMaxMinutes + config.jobTimeoutGraceMinutes) * 60 * 1000
+      : now;
+    return now >= hardDeadline && lastMs < staleHeartbeatCutoff;
+  });
+
+  const rows = [...staleRunning, ...(staleProvisioning || [])] as Row[];
   let stopped = 0;
   for (const job of rows) {
     const startedAt = job.started_at ? new Date(String(job.started_at)).getTime() : now;
     const runtimeSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+    const metadata = (job.metadata as Record<string, unknown> | null) || {};
+    const savedUsage = (metadata.usage as Record<string, unknown> | undefined) || {};
     await finalizeCloudJob({
       jobId: String(job.id),
       status: 'timed_out',
       summary: '実行時間の上限を超えたため終了しました。',
       error: 'timeout',
-      usage: { runtimeSeconds, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      usage: {
+        runtimeSeconds,
+        inputTokens: num(savedUsage.input_tokens ?? job.input_tokens),
+        outputTokens: num(savedUsage.output_tokens ?? job.output_tokens),
+        costUsd: num(savedUsage.cost_usd ?? job.cost_usd),
+      },
       stopCodespaceAfter: true,
     });
     stopped += 1;
@@ -530,6 +596,83 @@ export async function touchCloudJob(jobId: string): Promise<void> {
   }
 }
 
+export interface CloudJobProgressInput {
+  jobId: string;
+  stage?: string;
+  runtimeSeconds?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+}
+
+export const CLOUD_PROGRESS_STAGES = [
+  'claimed',
+  'reset',
+  'sandbox',
+  'agent',
+  'review',
+  'publish',
+] as const;
+
+/**
+ * 実行中のジョブの進捗（ステージ・使用量）を保存する。
+ * ランナーが途中で落ちても、ここまでのトークン数と原因が残るようにする。
+ */
+export async function updateCloudJobProgress(input: CloudJobProgressInput): Promise<void> {
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+  const { data: current } = await admin
+    .from('cloud_jobs')
+    .select('id, status, metadata, runtime_seconds, input_tokens, output_tokens, cost_usd, codespace_name')
+    .eq('id', input.jobId)
+    .maybeSingle();
+  if (!current || String(current.status) !== 'running') return;
+
+  const row = current as Row;
+  const metadata = (row.metadata as Record<string, unknown> | null) || {};
+  const runtimeSeconds = Math.max(
+    num(row.runtime_seconds),
+    Math.max(0, Math.round(Number(input.runtimeSeconds) || 0)),
+  );
+  const inputTokens = Math.max(num(row.input_tokens), Math.max(0, Math.round(Number(input.inputTokens) || 0)));
+  const outputTokens = Math.max(num(row.output_tokens), Math.max(0, Math.round(Number(input.outputTokens) || 0)));
+  const costUsd = Number(
+    Math.max(num(row.cost_usd), Math.max(0, Number(input.costUsd) || 0)).toFixed(6),
+  );
+
+  await admin
+    .from('cloud_jobs')
+    .update({
+      heartbeat_at: now,
+      runtime_seconds: runtimeSeconds,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_usd: costUsd,
+      metadata: {
+        ...metadata,
+        ...(input.stage ? { stage: input.stage } : {}),
+        progress_at: now,
+        usage: {
+          runtime_seconds: runtimeSeconds,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cost_usd: costUsd,
+        },
+      },
+    })
+    .eq('id', input.jobId)
+    .eq('status', 'running');
+
+  const codespaceName = row.codespace_name ? String(row.codespace_name) : '';
+  if (codespaceName) {
+    await admin
+      .from('cloud_sessions')
+      .update({ runner_seen_at: now, updated_at: now })
+      .eq('codespace_name', codespaceName)
+      .eq('status', 'busy');
+  }
+}
+
 export interface FinalizeInput {
   jobId: string;
   status: CloudJobStatus;
@@ -653,31 +796,81 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
     && (input.status === 'blocked' || input.status === 'failed');
   const sessionStatus = keepReview ? 'review' : shouldStop ? 'stopped' : 'idle';
 
-  const { data: updated } = await admin
-    .from('cloud_jobs')
-    .update({
-      credits_charged: charged,
-      payment_status: paymentStatus,
-      runtime_seconds: Math.max(0, Math.round(input.usage.runtimeSeconds)),
-      input_tokens: Math.max(0, Math.round(input.usage.inputTokens)),
-      output_tokens: Math.max(0, Math.round(input.usage.outputTokens)),
-      cost_usd: Number(Math.max(0, input.usage.costUsd).toFixed(6)),
-      result_summary: input.summary?.slice(0, 4000) || null,
-      result_detail: input.detail?.slice(0, 12000) || null,
-      pr_url: input.prUrl?.slice(0, 1000) || String(job.pr_url || '') || null,
-      branch: input.branch?.slice(0, 200) || job.branch || null,
-      error: userFacingError,
-      metadata: {
-        ...metadata,
-        ...(job.kind === 'user_task' && technicalError ? { technical_error: technicalError } : {}),
-        security_flags: securityFlags,
-        blocked_stage: input.blockedStage || (input.status === 'blocked' ? 'diff' : null),
-        keep_codespace: keepReview,
+  const runtimeSeconds = Math.max(
+    Math.max(0, Math.round(input.usage.runtimeSeconds)),
+    num(job.runtime_seconds),
+  );
+  const inputTokens = Math.max(
+    Math.max(0, Math.round(input.usage.inputTokens)),
+    num(job.input_tokens),
+  );
+  const outputTokens = Math.max(
+    Math.max(0, Math.round(input.usage.outputTokens)),
+    num(job.output_tokens),
+  );
+  const costUsd = Number(
+    Math.max(Math.max(0, input.usage.costUsd), num(job.cost_usd)).toFixed(6),
+  );
+  const detailText = input.detail?.slice(0, 12000) || null;
+  const resultPayload: Record<string, unknown> = {
+    credits_charged: charged,
+    payment_status: paymentStatus,
+    runtime_seconds: runtimeSeconds,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cost_usd: costUsd,
+    result_summary: input.summary?.slice(0, 4000) || null,
+    pr_url: input.prUrl?.slice(0, 1000) || String(job.pr_url || '') || null,
+    branch: input.branch?.slice(0, 200) || job.branch || null,
+    error: userFacingError,
+    metadata: {
+      ...metadata,
+      ...(job.kind === 'user_task' && technicalError ? { technical_error: technicalError } : {}),
+      security_flags: securityFlags,
+      blocked_stage: input.blockedStage || (input.status === 'blocked' ? 'diff' : null),
+      keep_codespace: keepReview,
+      stage: 'done',
+      usage: {
+        runtime_seconds: runtimeSeconds,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cost_usd: costUsd,
       },
-    })
+    },
+  };
+
+  let updated: Row | null = null;
+  const withDetail = await admin
+    .from('cloud_jobs')
+    .update({ ...resultPayload, result_detail: detailText })
     .eq('id', input.jobId)
     .select()
     .maybeSingle();
+  if (withDetail.error) {
+    // result_detail 列が未作成の環境でも、結果と使用量を失わないようにする
+    console.error('Saving cloud job detail failed, retrying without it:', withDetail.error);
+    const fallbackPayload = detailText
+      ? {
+          ...resultPayload,
+          metadata: {
+            ...(resultPayload.metadata as Record<string, unknown>),
+            detail: detailText,
+          },
+        }
+      : resultPayload;
+    const fallback = await admin
+      .from('cloud_jobs')
+      .update(fallbackPayload)
+      .eq('id', input.jobId)
+      .select()
+      .maybeSingle();
+    if (fallback.error) {
+      console.error('Saving cloud job result failed:', fallback.error);
+    }
+    updated = (fallback.data as Row | null) ?? null;
+  } else {
+    updated = (withDetail.data as Row | null) ?? null;
+  }
 
   if (job.user_id) {
     const succeeded = input.status === 'succeeded';

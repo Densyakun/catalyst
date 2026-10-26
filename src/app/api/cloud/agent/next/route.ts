@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
         issue_url: job.issue_url,
         model: job.model,
         max_minutes: job.max_minutes,
+        stall_minutes: config.jobStallMinutes,
         codespace_name: job.codespace_name,
         started_at: job.started_at,
         allow_push: config.autoPush,

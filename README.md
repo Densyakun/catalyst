@@ -74,7 +74,7 @@ OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 ```
 
 ### 3. データベースのセットアップ
-`supabase_schema.sql` と `supabase_migration_v2.sql` 〜 `supabase_migration_v16.sql` を Supabase SQL Editor で順に実行してください。
+`supabase_schema.sql` と `supabase_migration_v2.sql` 〜 `supabase_migration_v17.sql` を Supabase SQL Editor で順に実行してください。
 
 ## 6. クラウド作業（自動改善 + ユーザー依頼）
 
@@ -106,7 +106,11 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
 - 一般ユーザーの依頼は **OS ユーザーを分離したサンドボックス** で実行し、アプリ本体リポジトリ・GitHub トークン・ランナートークン・秘密情報にアクセスできないようにします。
 - エージェントにはシェル実行・Web取得・外部ディレクトリ参照・サブエージェント・スキル読込を許可しません。ファイルの読み書きと検索のみです。
 - 変更前に保護対象ファイル（CI、依存関係、エージェント設定、クラウド実装、環境変数など）と秘密情報を走査し、問題があれば push しません。
-- `CLOUD_AUTO_PUSH` は既定で `false` です。自動で PR を作る場合は、変更内容の走査と保護対象チェックを理解したうえで `true` にしてください。
+- `CLOUD_AUTO_PUSH` は既定で `true` です。安全検査（秘密情報・保護対象ファイル・差分サイズ・型チェック）を通過した変更だけをブランチとして push し、PR を作成します（マージは人間が行います）。`false` にすると push/PR せず、管理者の確認待ちで停止します。
+- 実行中は「受付 / リポジトリ準備 / 作業環境の準備 / AIが実装中 / 変更を検証中 / 公開準備中」の進捗がジョブに記録されます。
+- AI からの応答が `CLOUD_JOB_STALL_MINUTES`（既定 8 分）途絶えた場合は、時間切れを待たずに理由付きで終了します。
+- ランナーが途中で落ちても、それまでのトークン使用量と失敗理由がジョブに残ります（`supabase_migration_v17.sql` を適用してください）。
+- ランナーは Codespace 起動時に常駐し、異常終了した場合だけ自動で再起動します（`scripts/cloud-runner-supervisor.sh`）。
 - 保護対象ファイル（CI、依存関係、エージェント設定、クラウド実装、環境変数など）の変更は常に停止します。必要な場合は人間が手動で対応してください。
 
 ### Codespace の再利用と停止
