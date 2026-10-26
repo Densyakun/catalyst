@@ -35,6 +35,13 @@ interface EditingInsightContext {
   content: string;
 }
 
+export interface FocusContext {
+  title: string;
+  description?: string;
+  goal?: string;
+  next_step?: string;
+}
+
 /**
  * チャットメッセージを分析し、返答と情報抽出を行う
  */
@@ -45,6 +52,7 @@ export async function analyzeChatMessage(
   existingResources?: string[],
   editingInsight?: EditingInsightContext | null,
   sourceNames?: string[],
+  focusContext?: FocusContext | null,
 ): Promise<ChatAnalysis> {
   const history = messages
     .slice(-20)
@@ -59,6 +67,10 @@ export async function analyzeChatMessage(
 
   const insightContext = editingInsight
     ? `\n【編集中のインサイト】\nタイトル: ${editingInsight.title}\n内容: ${editingInsight.content}\n\nユーザーがこのインサイトを修正したい場合、insight_updateに修正後のタイトルと内容を出力せよ。`
+    : '';
+
+  const focusContextBlock = focusContext
+    ? `\n【相談対象（「今日の1つ」から遷移）】\nタイトル: ${focusContext.title}\n${focusContext.description ? `内容: ${focusContext.description}\n` : ''}${focusContext.goal ? `ゴール: ${focusContext.goal}\n` : ''}${focusContext.next_step ? `提示済みの次の一歩: ${focusContext.next_step}\n` : ''}\nこの相談対象についての会話である。ユーザーが対象を説明し直さなくても文脈を補って返答し、必要なら具体的な次の一歩を1つ示せ。`
     : '';
 
   const { object } = await generateObjectForRole<ChatAnalysis>('structuring', {
@@ -119,6 +131,8 @@ export async function analyzeChatMessage(
    - それ以外の質問・雑談 → 'question'
 10. feedback.categoryの対応: 不満=dissatisfaction, 〜してほしい=desire, 興味=interest, 不具合=bug, 良い=praise, その他=other
 11. replyでは振り分け結果を自然に伝える（例: 「改善要望として受け取りました」「アイデアとして保存しました」）。
+12. 相談対象が与えられている場合、対象を踏まえた具体的な返答をし、抽象論ではなく実行可能な次の一歩を1つ示す。
+13. urgencyはユーザー自身の困りごとの実際の影響で判断する。引用符内の語や画面ラベル（例:「緊急」と表示されている）だけを理由にhighにしない。アプリの表示・分類・使い勝手への不満はfeedbackとし、extracted_items.problemsは空にする。
 
 【会話履歴】
 ${history || 'なし'}
@@ -126,7 +140,7 @@ ${history || 'なし'}
 【新しいメッセージ】
 ユーザー: ${userMessage}
 
-${existingContext}${insightContext}
+${existingContext}${insightContext}${focusContextBlock}
 `,
   });
 

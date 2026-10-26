@@ -14,15 +14,38 @@ export interface EditingInsight {
   content: string;
 }
 
+export interface FocusContext {
+  title: string;
+  description?: string | null;
+  goal?: string | null;
+  nextStep?: string | null;
+}
+
 interface ChatPanelProps {
   editingInsight?: EditingInsight | null;
   onClearEditingInsight?: () => void;
   onInsightUpdated?: () => void;
   sourceNames?: string[];
   onSourcesChanged?: () => void;
+  focusContext?: FocusContext | null;
+  onClearFocusContext?: () => void;
+  heading?: string;
+  description?: string;
+  autoFocus?: boolean;
 }
 
-export default function ChatPanel({ editingInsight, onClearEditingInsight, onInsightUpdated, sourceNames, onSourcesChanged }: ChatPanelProps) {
+export default function ChatPanel({
+  editingInsight,
+  onClearEditingInsight,
+  onInsightUpdated,
+  sourceNames,
+  onSourcesChanged,
+  focusContext,
+  onClearFocusContext,
+  heading = 'クイック入力',
+  description = '困りごと・思いつき・アプリへの要望を自動で振り分けます。',
+  autoFocus = false,
+}: ChatPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -38,6 +61,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
   const [sourceActionResult, setSourceActionResult] = useState<string | null>(null);
   const [captureResult, setCaptureResult] = useState<{ type: string; ideaSaved: boolean; feedbackSaved: boolean } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -59,6 +83,12 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (autoFocus && !sending) {
+      inputRef.current?.focus();
+    }
+  }, [autoFocus, sending]);
 
   const loadConversation = (conv: Conversation) => {
     setActiveConvId(conv.id);
@@ -94,6 +124,14 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         message: userMsg.content,
         source_names: sourceNames || [],
       };
+      if (focusContext) {
+        body.focus_context = {
+          title: focusContext.title,
+          description: focusContext.description || '',
+          goal: focusContext.goal || '',
+          next_step: focusContext.nextStep || '',
+        };
+      }
       if (editingInsight) {
         body.editing_insight_id = editingInsight.id;
         body.editing_insight_title = editingInsight.title;
@@ -156,10 +194,10 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         <div style={{ minWidth: 0 }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
             <MessageSquare size={14} className="text-accent" />
-            クイック入力
+            {heading}
           </h3>
           <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0' }}>
-            困りごと・思いつき・アプリへの要望を自動で振り分けます
+            {description}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
@@ -276,6 +314,43 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         </div>
       )}
 
+      {/* Focus Context Banner */}
+      {focusContext && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '0.4rem',
+          padding: '0.45rem 0.6rem',
+          background: 'rgba(99, 102, 241, 0.1)',
+          border: '1px solid rgba(99, 102, 241, 0.3)',
+          borderRadius: '6px',
+          marginBottom: '0.4rem',
+          fontSize: '0.72rem',
+          color: '#a5b4fc',
+        }}>
+          <MessageSquare size={11} style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              相談中: {focusContext.title}
+            </div>
+            {focusContext.description && (
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {focusContext.description}
+              </div>
+            )}
+          </div>
+          {onClearFocusContext && (
+            <button
+              onClick={onClearFocusContext}
+              title="相談を終える"
+              style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', padding: 0, display: 'flex' }}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Messages */}
       <div style={{
         maxHeight: '200px',
@@ -291,7 +366,9 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
       }}>
         {messages.length === 0 && (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
-            例:「仕事の優先順位が決められない」「こういうサービスがあったらいいな」「この画面が分かりにくい」
+            {focusContext
+              ? 'この課題について、いま困っていること・試したこと・迷っていることを書いてください。'
+              : '例:「仕事の優先順位が決められない」「こういうサービスがあったらいいな」「この画面が分かりにくい」'}
           </p>
         )}
         {messages.map((msg, i) => (
@@ -464,8 +541,15 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、思いついたこと、アプリへの要望..."}
+          placeholder={
+            editingInsight
+              ? `「${editingInsight.title}」をどう修正しますか？`
+              : focusContext
+                ? 'この課題について、いま話したいことを入力...'
+                : '困っていること、思いついたこと、アプリへの要望...'
+          }
           disabled={sending}
+          ref={inputRef}
           style={{
             flex: 1,
             minWidth: 0,

@@ -21,13 +21,16 @@ import TodayView, { type NavTab } from '@/components/TodayView';
 import ExecutionView from '@/components/ExecutionView';
 import DiagnosisResultView from '@/components/DiagnosisResultView';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { EditingInsight } from '@/components/ChatPanel';
+import type { EditingInsight, FocusContext } from '@/components/ChatPanel';
+import type { TodayFocus } from '@/lib/types/today';
 import {
+  ArrowRight,
   ClipboardList,
   FolderKanban,
   History,
   Loader2,
   LogOut,
+  MessageSquare,
   Settings,
   Sparkles,
   Sun,
@@ -100,6 +103,7 @@ export default function Home() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executeError, setExecuteError] = useState('');
   const [editingInsight, setEditingInsight] = useState<EditingInsight | null>(null);
+  const [consultTarget, setConsultTarget] = useState<FocusContext | null>(null);
   const [todayRefreshKey, setTodayRefreshKey] = useState(0);
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [sourcesRefreshKey, setSourcesRefreshKey] = useState(0);
@@ -216,7 +220,29 @@ export default function Home() {
   const handleResult = (newResult: DiagnosisResult) => {
     setResult(newResult);
     setExecutionResult(null);
+    setConsultTarget(null);
     setActiveTab('issues');
+    bumpToday();
+    void fetchHistory();
+  };
+
+  const handleConsult = (focus: TodayFocus) => {
+    setConsultTarget({
+      title: focus.title,
+      description: focus.description,
+      goal: focus.goal,
+      nextStep: focus.nextStep,
+    });
+    setResult(null);
+    setExecutionResult(null);
+    setActiveTab('issues');
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const closeConsult = () => {
+    setConsultTarget(null);
     bumpToday();
     void fetchHistory();
   };
@@ -272,7 +298,10 @@ export default function Home() {
     ? '匿名ユーザー'
     : (session.user.user_metadata.full_name || session.user.email?.split('@')[0]);
 
-  const navigate = (tab: NavTab) => setActiveTab(tab);
+  const navigate = (tab: NavTab) => {
+    setConsultTarget(null);
+    setActiveTab(tab);
+  };
 
   return (
     <main className="container" style={{ paddingBottom: '2rem' }}>
@@ -352,6 +381,7 @@ export default function Home() {
             <TodayView
               username={username || 'あなた'}
               onNavigate={navigate}
+              onConsult={handleConsult}
               refreshKey={todayRefreshKey}
               onDataChanged={bumpToday}
             />
@@ -373,7 +403,14 @@ export default function Home() {
                   実行計画を作成できませんでした: {executeError}
                 </div>
               )}
-              {executionResult ? (
+              {consultTarget ? (
+                <ConsultView
+                  target={consultTarget}
+                  sourceNames={sourceNames}
+                  onSourcesChanged={handleSourcesChanged}
+                  onClose={closeConsult}
+                />
+              ) : executionResult ? (
                 <ExecutionView
                   result={executionResult}
                   actionId={executionResult.actionId}
@@ -502,6 +539,110 @@ export default function Home() {
   );
 }
 
+function ConsultView({
+  target,
+  sourceNames,
+  onSourcesChanged,
+  onClose,
+}: {
+  target: FocusContext;
+  sourceNames: string[];
+  onSourcesChanged: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div style={{ maxWidth: '920px', margin: '0 auto', display: 'grid', gap: '0.8rem' }}>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-panel"
+        style={{
+          padding: 'clamp(1rem, 3vw, 1.4rem)',
+          border: '1px solid rgba(99, 102, 241, 0.4)',
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.05))',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
+          <MessageSquare size={14} className="text-accent" />
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>
+            今日の1つについて相談
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              marginLeft: 'auto',
+              padding: '0.3rem 0.6rem',
+              fontSize: '0.7rem',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '6px',
+              color: 'white',
+              cursor: 'pointer',
+            }}
+          >
+            相談を終える
+          </button>
+        </div>
+
+        <h2 style={{ fontSize: 'clamp(1.1rem, 2.4vw, 1.4rem)', marginBottom: '0.35rem', overflowWrap: 'anywhere' }}>
+          {target.title}
+        </h2>
+        {target.description && (
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', marginBottom: '0.4rem' }}>
+            {target.description}
+          </p>
+        )}
+        {target.nextStep && (
+          <p style={{ fontSize: '0.78rem', marginBottom: '0.5rem' }}>
+            <span style={{ color: 'var(--accent-color)' }}>提示された次の一歩: </span>
+            {target.nextStep}
+          </p>
+        )}
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '0.4rem',
+            marginTop: '0.6rem',
+          }}
+        >
+          {[
+            '① 下の入力欄に、今困っていることを書く',
+            '② AIの返答に、続けて質問する',
+            '③ 出てきた提案から次の一歩を選ぶ',
+          ].map((step) => (
+            <div
+              key={step}
+              style={{
+                padding: '0.45rem 0.55rem',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '8px',
+                fontSize: '0.7rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {step}
+            </div>
+          ))}
+        </div>
+      </motion.div>
+
+      <ChatPanel
+        focusContext={target}
+        onClearFocusContext={onClose}
+        heading="相談チャット"
+        description="この課題についてAIと話せます。返答に続けて質問できます。"
+        autoFocus
+        sourceNames={sourceNames}
+        onSourcesChanged={onSourcesChanged}
+      />
+    </div>
+  );
+}
+
 function IssuesContent({
   editingInsight,
   onClearEditingInsight,
@@ -536,25 +677,66 @@ function IssuesContent({
       <div className="glass-panel" style={{ padding: '0.9rem 1rem', marginBottom: '0.8rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.15rem' }}>
           <Sparkles size={14} className="text-accent" />
-          <h2 style={{ fontSize: '0.95rem', margin: 0 }}>課題を整理する</h2>
+          <h2 style={{ fontSize: '0.95rem', margin: 0 }}>課題タブの使い方</h2>
         </div>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          じっくり整理するなら診断、まずは話すだけならクイック入力。どちらからでも始められます。
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+          迷ったら、まずは「AIと話す」から。下のクイック入力に状況を書くだけで相談できます。
         </p>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() =>
+              document.getElementById('issues-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            style={{ padding: '0.4rem 0.7rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+          >
+            <MessageSquare size={13} /> AIと話す
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              document.getElementById('issues-diagnosis')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            style={{
+              padding: '0.4rem 0.7rem',
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '8px',
+              color: 'white',
+              cursor: 'pointer',
+            }}
+          >
+            <ArrowRight size={13} /> じっくり診断する
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.55rem' }}>
+          {['① 状況を書く', '② AIの返答に追加で聞く', '③ 提案から次の一歩を選ぶ'].map((step) => (
+            <span key={step} style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+              {step}
+            </span>
+          ))}
+        </div>
       </div>
 
-      <div style={{ marginBottom: '0.8rem' }}>
+      <div id="issues-diagnosis" style={{ marginBottom: '0.8rem' }}>
         <IntakeWizard onResult={onResult} />
       </div>
 
       <div className="panel-grid">
-        <ChatPanel
-          editingInsight={editingInsight}
-          onClearEditingInsight={onClearEditingInsight}
-          onInsightUpdated={onInsightUpdated}
-          sourceNames={sourceNames}
-          onSourcesChanged={onSourcesChanged}
-        />
+        <div id="issues-chat">
+          <ChatPanel
+            editingInsight={editingInsight}
+            onClearEditingInsight={onClearEditingInsight}
+            onInsightUpdated={onInsightUpdated}
+            sourceNames={sourceNames}
+            onSourcesChanged={onSourcesChanged}
+          />
+        </div>
         <InsightsPanel onEditInChat={onEditInChat} refreshKey={insightsRefreshKey} />
         <IdeaInboxPanel onProcessed={onIdeaProcessed} />
         <SourcesPanel refreshKey={sourcesRefreshKey} />

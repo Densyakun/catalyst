@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { conversation_id, message, editing_insight_id, editing_insight_title, editing_insight_content, source_names } = await req.json();
+    const { conversation_id, message, editing_insight_id, editing_insight_title, editing_insight_content, source_names, focus_context } = await req.json();
 
     // 既存の会話を取得 or 新規作成
     let conversationId = conversation_id;
@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
       existingResources,
       editingInsight,
       source_names || [],
+      focus_context || null,
     );
 
     // AIの返答メッセージ

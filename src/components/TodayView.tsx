@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
+  ArrowDown,
   ArrowRight,
   CheckCircle2,
   Clock3,
@@ -27,6 +28,7 @@ export type NavTab = 'today' | 'issues' | 'plan' | 'connect' | 'settings';
 interface TodayViewProps {
   username: string;
   onNavigate: (tab: NavTab) => void;
+  onConsult?: (focus: TodayFocus) => void;
   refreshKey?: number;
   onDataChanged?: () => void;
 }
@@ -37,7 +39,7 @@ const URGENCY_META: Record<TodayUrgency, { label: string; color: string; bg: str
   low: { label: '通常', color: '#6b7280', bg: 'rgba(107, 114, 128, 0.15)', border: 'rgba(107, 114, 128, 0.35)' },
 };
 
-export default function TodayView({ username, onNavigate, refreshKey = 0, onDataChanged }: TodayViewProps) {
+export default function TodayView({ username, onNavigate, onConsult, refreshKey = 0, onDataChanged }: TodayViewProps) {
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,12 +48,14 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
 
   const [capture, setCapture] = useState('');
   const [captureSending, setCaptureSending] = useState(false);
-  const [captureReply, setCaptureReply] = useState<{
-    reply: string;
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [thread, setThread] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [captureNotice, setCaptureNotice] = useState<{
     type: string;
     ideaSaved: boolean;
     feedbackSaved: boolean;
   } | null>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
 
   const [executing, setExecuting] = useState(false);
   const [execution, setExecution] = useState<{
@@ -130,22 +134,33 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
     }
   };
 
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [thread, captureSending]);
+
   const sendCapture = async () => {
     const message = capture.trim();
     if (!message || captureSending) return;
     setCaptureSending(true);
     setError('');
+    const isFollowUp = Boolean(conversationId);
+    setThread((prev) => [...prev, { role: 'user', content: message }]);
+    setCapture('');
+    if (!isFollowUp) setCaptureNotice(null);
     try {
       const res = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, conversation_id: conversationId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || '送信に失敗しました');
-      setCapture('');
-      setCaptureReply({
-        reply: json.reply?.content || '受け取りました。',
+      setConversationId(json.conversation_id ?? conversationId);
+      setThread((prev) => [
+        ...prev,
+        { role: 'assistant', content: json.reply?.content || '受け取りました' },
+      ]);
+      setCaptureNotice({
         type: json.capture_type || 'question',
         ideaSaved: Boolean(json.idea_saved),
         feedbackSaved: Boolean(json.feedback_saved),
@@ -156,6 +171,33 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCaptureSending(false);
+    }
+  };
+
+  const startNewCapture = () => {
+    setThread([]);
+    setConversationId(null);
+    setCaptureNotice(null);
+    setCapture('');
+  };
+
+  const markNotUrgent = async () => {
+    if (!focus) return;
+    try {
+      const res = await fetch('/api/today/focus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: focus.kind, id: focus.id, action: 'not_urgent' }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || '緊急度を更新できませんでした');
+      }
+      setSelectedId(null);
+      await load();
+      onDataChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -199,7 +241,69 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
         </div>
         <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
           困りごと・思いつき・アプリへの要望を、そのまま書いてください。自動で振り分けます。
+          {thread.length > 0 && ' AIの回答には、そのまま続けて質問できます。'}
         </p>
+
+        {thread.length > 0 && (
+          <div
+            style={{
+              maxHeight: '260px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+              marginBottom: '0.6rem',
+              padding: '0.5rem',
+              background: 'rgba(0,0,0,0.2)',
+              borderRadius: '8px',
+            }}
+          >
+            {thread.map((message, index) => (
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <div
+                  style={{
+                    maxWidth: '85%',
+                    padding: '0.45rem 0.6rem',
+                    borderRadius:
+                      message.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                    background:
+                      message.role === 'user'
+                        ? 'rgba(99, 102, 241, 0.3)'
+                        : 'rgba(255,255,255,0.05)',
+                    fontSize: '0.78rem',
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {message.content}
+                </div>
+              </div>
+            ))}
+            {captureSending && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div
+                  style={{
+                    padding: '0.45rem 0.6rem',
+                    borderRadius: '10px 10px 10px 2px',
+                    background: 'rgba(255,255,255,0.05)',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Loader2 className="animate-spin" size={12} />
+                </div>
+              </div>
+            )}
+            <div ref={threadEndRef} />
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
           <textarea
             value={capture}
@@ -210,7 +314,11 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
                 void sendCapture();
               }
             }}
-            placeholder="例: 副業の準備が進まない。夜に1時間は使える。"
+            placeholder={
+              conversationId
+                ? 'AIの回答について、続けて聞きたいことを入力...'
+                : '例: 副業の準備が進まない。夜に1時間は使える。'
+            }
             rows={2}
             style={{
               flex: 1,
@@ -240,47 +348,61 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
             }}
           >
             {captureSending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
-            送る
+            {conversationId ? '返信' : '送る'}
           </button>
         </div>
 
-        {captureReply && (
+        {thread.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+              Ctrl / ⌘ + Enter でも送信できます
+            </span>
+            <button
+              type="button"
+              onClick={startNewCapture}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                fontSize: '0.68rem',
+                padding: 0,
+                cursor: 'pointer',
+              }}
+            >
+              新しい会話を始める
+            </button>
+          </div>
+        )}
+
+        {captureNotice && (
           <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             style={{
               marginTop: '0.6rem',
-              padding: '0.6rem 0.7rem',
-              background: captureReply.feedbackSaved
+              padding: '0.45rem 0.6rem',
+              background: captureNotice.feedbackSaved
                 ? 'rgba(59, 130, 246, 0.1)'
-                : captureReply.ideaSaved
+                : captureNotice.ideaSaved
                   ? 'rgba(245, 158, 11, 0.1)'
                   : 'rgba(34, 197, 94, 0.08)',
               border: '1px solid var(--glass-border)',
               borderRadius: '8px',
-              fontSize: '0.75rem',
+              fontSize: '0.68rem',
+              color: captureNotice.feedbackSaved
+                ? '#60a5fa'
+                : captureNotice.ideaSaved
+                  ? '#f59e0b'
+                  : '#4ade80',
             }}
           >
-            <p style={{ color: 'var(--text-secondary)' }}>{captureReply.reply}</p>
-            <p
-              style={{
-                marginTop: '0.25rem',
-                fontSize: '0.68rem',
-                color: captureReply.feedbackSaved
-                  ? '#60a5fa'
-                  : captureReply.ideaSaved
-                    ? '#f59e0b'
-                    : '#4ade80',
-              }}
-            >
-              {captureReply.feedbackSaved
-                ? 'アプリへの要望として記録しました。改善に活用します。'
-                : captureReply.ideaSaved
-                  ? 'アイデアとして保存しました。後でAIが整理します。'
-                  : captureReply.type === 'problem'
-                    ? '課題として整理しました。今日の候補を確認してください。'
-                    : '内容を受け取りました。'}
-            </p>
+            {captureNotice.feedbackSaved
+              ? 'アプリへの要望として記録しました。改善に活用します。'
+              : captureNotice.ideaSaved
+                ? 'アイデアとして保存しました。後でAIが整理します。'
+                : captureNotice.type === 'problem'
+                  ? '課題として整理しました。今日の候補を確認してください。'
+                  : '内容を受け取りました。続けて質問できます。'}
           </motion.div>
         )}
       </div>
@@ -326,7 +448,8 @@ export default function TodayView({ username, onNavigate, refreshKey = 0, onData
           executing={executing}
           onExecute={() => void executeFocus()}
           onInsightAction={(action) => void updateInsight(action)}
-          onOpenIssues={() => onNavigate('issues')}
+          onConsult={() => (onConsult ? onConsult(focus) : onNavigate('issues'))}
+          onNotUrgent={() => void markNotUrgent()}
         />
       ) : (
         !loading && (
@@ -437,13 +560,15 @@ function FocusCard({
   executing,
   onExecute,
   onInsightAction,
-  onOpenIssues,
+  onConsult,
+  onNotUrgent,
 }: {
   focus: TodayFocus;
   executing: boolean;
   onExecute: () => void;
   onInsightAction: (action: 'proceed' | 'hold') => void;
-  onOpenIssues: () => void;
+  onConsult: () => void;
+  onNotUrgent: () => void;
 }) {
   const urgency = URGENCY_META[focus.urgency];
 
@@ -570,7 +695,7 @@ function FocusCard({
         )}
         <button
           type="button"
-          onClick={onOpenIssues}
+          onClick={onConsult}
           style={{
             padding: '0.5rem 0.9rem',
             fontSize: '0.8rem',
@@ -583,8 +708,29 @@ function FocusCard({
             color: 'white',
           }}
         >
-          <MessageSquare size={14} /> 相談する
+          <MessageSquare size={14} /> この課題について相談
         </button>
+        {focus.urgency !== 'low' && (
+          <button
+            type="button"
+            onClick={onNotUrgent}
+            title="AIの緊急度判定が実感と違うときに下げられます"
+            style={{
+              padding: '0.5rem 0.9rem',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              background: 'none',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '8px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+            }}
+          >
+            <ArrowDown size={14} /> {focus.urgency === 'high' ? '緊急ではない' : '重要ではない'}
+          </button>
+        )}
       </div>
     </motion.div>
   );
