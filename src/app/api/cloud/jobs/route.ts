@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { isAdminUser } from '@/lib/admin';
 import { getCloudConfig, isCloudConfigured } from '@/lib/cloud/config';
 import { buildUserTaskPrompt, toCloudJob } from '@/lib/cloud/jobs';
+import { redactSecrets, sanitizeCommitText } from '@/lib/cloud/security';
 
 export async function GET() {
   try {
@@ -48,9 +49,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const title = typeof body?.title === 'string' ? body.title.trim().slice(0, 120) : '';
+    const title = typeof body?.title === 'string' ? redactSecrets(sanitizeCommitText(body.title, 120)) : '';
     const prompt = typeof body?.prompt === 'string' ? body.prompt.trim().slice(0, 8000) : '';
-    const repo = typeof body?.repo === 'string' ? body.repo.trim() : '';
 
     if (title.length < 2) {
       return NextResponse.json({ error: 'タイトルを入力してください' }, { status: 400 });
@@ -60,14 +60,6 @@ export async function POST(req: NextRequest) {
     }
 
     const config = getCloudConfig();
-    const allowed = new Set([config.repo, ...config.allowedRepos].filter(Boolean));
-    if (repo && !allowed.has(repo)) {
-      return NextResponse.json(
-        { error: 'このリポジトリはクラウド作業の対象に許可されていません' },
-        { status: 400 },
-      );
-    }
-
     const isAdmin = isAdminUser(user);
     if (!isAdmin) {
       const startOfDay = new Date();
@@ -97,12 +89,12 @@ export async function POST(req: NextRequest) {
         source: 'user',
         title,
         prompt: buildUserTaskPrompt(title, prompt),
-        repo: repo || null,
+        repo: null,
         model: config.model,
         max_minutes: config.jobMaxMinutes,
         funded_by: 'user',
         credits_estimated: config.estimateCredits,
-        metadata: { requested_repo: repo || null },
+        metadata: { sandboxed: true },
       })
       .select()
       .single();

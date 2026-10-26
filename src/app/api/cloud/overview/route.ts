@@ -50,6 +50,7 @@ export async function GET() {
       daily_used: dailyUsed ?? 0,
       auto_enabled: isAdmin ? config.autoEnabled : false,
       auto_repo: isAdmin ? config.repo || null : null,
+      auto_push: isAdmin ? config.autoPush : false,
       max_concurrent: isAdmin ? config.maxConcurrent : 0,
       jobs: (jobs || []).map((job) => toCloudJob(job, isAdmin)),
       message: isCloudConfigured()

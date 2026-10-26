@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeRunner } from '@/lib/cloud/runner-auth';
 import { claimCloudJob } from '@/lib/cloud/jobs';
+import { getCloudConfig } from '@/lib/cloud/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,11 +16,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'codespace_name is required' }, { status: 400 });
     }
 
-    const job = await claimCloudJob(codespaceName);
-    if (!job) {
-      return NextResponse.json({ job: null, retry_after_seconds: 10 });
+    const config = getCloudConfig();
+    const result = await claimCloudJob(codespaceName);
+    if (!result.job) {
+      return NextResponse.json({
+        job: null,
+        session_active: result.sessionActive,
+        runner_idle_minutes: config.runnerIdleMinutes,
+        retry_after_seconds: 10,
+      });
     }
 
+    const job = result.job;
     return NextResponse.json({
       job: {
         id: job.id,
@@ -34,7 +42,13 @@ export async function POST(req: NextRequest) {
         max_minutes: job.max_minutes,
         codespace_name: job.codespace_name,
         started_at: job.started_at,
+        allow_push: config.autoPush,
+        max_diff_lines: config.maxDiffLines,
+        sandbox_user: config.sandboxUser,
       },
+      session_active: result.sessionActive,
+      runner_idle_minutes: config.runnerIdleMinutes,
+      retry_after_seconds: 10,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

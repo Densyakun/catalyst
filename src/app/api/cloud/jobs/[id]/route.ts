@@ -30,21 +30,33 @@ export async function DELETE(
     if (job.user_id !== user.id && !isAdminUser(user)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    if (!['queued', 'provisioning', 'running'].includes(String(job.status))) {
+    if (!['queued', 'provisioning', 'running', 'blocked'].includes(String(job.status))) {
       return NextResponse.json({ error: 'この作業はすでに終了しています' }, { status: 400 });
     }
 
+    const now = new Date().toISOString();
     await admin
       .from('cloud_jobs')
       .update({
         status: 'cancelled',
         error: 'ユーザーによりキャンセルされました',
-        finished_at: new Date().toISOString(),
+        finished_at: now,
         payment_status: 'free',
       })
       .eq('id', id);
 
     const config = getCloudConfig();
+    if (job.codespace_name) {
+      await admin
+        .from('cloud_sessions')
+        .update({
+          status: 'stopped',
+          current_job_id: null,
+          stopped_at: now,
+          updated_at: now,
+        })
+        .eq('codespace_name', String(job.codespace_name));
+    }
     if (job.codespace_name && config.githubToken) {
       try {
         await stopCodespace(config.githubToken, String(job.codespace_name));

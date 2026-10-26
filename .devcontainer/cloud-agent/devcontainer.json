@@ -4,5 +4,6 @@
     "dockerfile": "Dockerfile"
   },
   "remoteUser": "node",
+  "postCreateCommand": "npm ci || true",
   "postStartCommand": "bash -lc 'nohup node scripts/cloud-runner.mjs > /tmp/katalyst-cloud.log 2>&1 &'"
 }

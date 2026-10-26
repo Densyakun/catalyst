@@ -1,0 +1,192 @@
+{
+  "suspicious": [
+    {
+      "label": "HTMLコメント内の不可視指示",
+      "pattern": "<!--[\\s\\S]*?-->",
+      "flags": "i"
+    },
+    {
+      "label": "指示の上書き",
+      "pattern": "\\b(ignore|disregard|forget)\\b[^\\n]{0,60}\\b(previous|above|prior|system|developer)\\b[^\\n]{0,30}\\b(instructions?|prompts?|rules?)\\b",
+      "flags": "i"
+    },
+    {
+      "label": "指示の上書き（日本語）",
+      "pattern": "(以前|上|前述|これまで|システム)の?(指示|命令|プロンプト|ルール)[^\\n]{0,30}(無視|忘れ|上書き|従わない)",
+      "flags": "i"
+    },
+    {
+      "label": "秘密情報の読み出し",
+      "pattern": "\\b(cat|print|echo|read|show|type|export|reveal|dump|display)\\b[^\\n]{0,80}(\\.env|environment|\\benv\\b|secret|token|password|credential|git-credentials|settings\\.local\\.json|auth\\.json|account\\.json|\\.pem|id_rsa|id_ed25519|api[_-]?key)",
+      "flags": "i"
+    },
+    {
+      "label": "秘密情報の読み出し（日本語）",
+      "pattern": "(環境変数|\\.env|トークン|パスワード|認証情報|秘密鍵|APIキー|api[_-]?key)[^\\n]{0,40}(読|表示|出力|教えて|取得|送|アップロード|公開)",
+      "flags": "i"
+    },
+    {
+      "label": "リモートスクリプトの実行",
+      "pattern": "\\b(curl|wget|iwr|invoke-webrequest)\\b[^\\n]{0,160}(\\||>|\\b(sh|bash|zsh|pwsh|powershell|node|python|perl)\\b)",
+      "flags": "i"
+    },
+    {
+      "label": "依存パッケージの追加",
+      "pattern": "\\b(npm|pnpm|yarn|bun|pip3?|gem|go|cargo|apt|apt-get|brew|composer)\\s+(install|add|i|get|update|upgrade)\\b",
+      "flags": "i"
+    },
+    {
+      "label": "依存パッケージの追加（日本語）",
+      "pattern": "(パッケージ|依存|ライブラリ)[^\\n]{0,30}(追加|インストール|導入|アップグレード|更新)",
+      "flags": "i"
+    },
+    {
+      "label": "動的コード実行・難読化",
+      "pattern": "\\b(eval|exec|base64\\s+-d|atob|fromCharCode)\\b",
+      "flags": "i"
+    },
+    {
+      "label": "CI・エージェント設定の変更",
+      "pattern": "(\\.github/workflows|\\.github/actions|allowed_non_write_users|autoApprove|\\.cursorrules|\\.claude|\\.cursor|opencode\\.jsonc?|AGENTS\\.md|CLAUDE\\.md|\\.devcontainer)",
+      "flags": "i"
+    },
+    {
+      "label": "外部へのデータ送信",
+      "pattern": "\\b(exfiltrat\\w*|send|post|upload|forward|webhook)\\b[^\\n]{0,100}(https?:\\/\\/|token|secret|credential|\\.env|api[_-]?key)",
+      "flags": "i"
+    },
+    {
+      "label": "外部へのデータ送信（日本語）",
+      "pattern": "(送信|投稿|アップロード|外部に送|webhook)[^\\n]{0,60}(トークン|秘密|認証|\\.env|APIキー|https?:\\/\\/)",
+      "flags": "i"
+    },
+    {
+      "label": "長いbase64・難読化文字列",
+      "pattern": "[A-Za-z0-9+/]{120,}={0,2}",
+      "flags": ""
+    },
+    {
+      "label": "不可視文字・双方向制御文字",
+      "pattern": "[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\uFEFF]",
+      "flags": ""
+    },
+    {
+      "label": "不可視化されたHTML",
+      "pattern": "<span[^>]+(color\\s*:\\s*(white|#fff|#ffffff)|font-size\\s*:\\s*0)",
+      "flags": "i"
+    },
+    {
+      "label": "破壊的・権限昇格コマンド",
+      "pattern": "\\b(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+push[^\\n]{0,40}(--force|-f)|--no-verify|sudo|chmod\\s+777|mkfs|dd\\s+if=)",
+      "flags": "i"
+    },
+    {
+      "label": "GitHub設定・認証の変更",
+      "pattern": "\\bgh\\s+(auth|api|secret|repo\\s+delete|workflow)\\b",
+      "flags": "i"
+    }
+  ],
+  "secrets": [
+    {
+      "label": "GitHubトークン",
+      "pattern": "gh[pousr]_[A-Za-z0-9]{20,}",
+      "flags": ""
+    },
+    {
+      "label": "GitHub fine-grainedトークン",
+      "pattern": "github_pat_[A-Za-z0-9_]{20,}",
+      "flags": ""
+    },
+    {
+      "label": "OpenAI/OpenCode APIキー",
+      "pattern": "sk-[A-Za-z0-9_-]{20,}",
+      "flags": ""
+    },
+    {
+      "label": "Anthropic APIキー",
+      "pattern": "sk-ant-[A-Za-z0-9_-]{20,}",
+      "flags": ""
+    },
+    {
+      "label": "AWSアクセスキー",
+      "pattern": "(AKIA|ASIA)[0-9A-Z]{16}",
+      "flags": ""
+    },
+    {
+      "label": "Google APIキー",
+      "pattern": "AIza[0-9A-Za-z_-]{35}",
+      "flags": ""
+    },
+    {
+      "label": "Slackトークン",
+      "pattern": "xox[baprs]-[A-Za-z0-9-]{10,}",
+      "flags": ""
+    },
+    {
+      "label": "秘密鍵",
+      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "flags": ""
+    },
+    {
+      "label": "JWT",
+      "pattern": "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}",
+      "flags": ""
+    },
+    {
+      "label": "秘密の代入",
+      "pattern": "(api[_-]?key|secret|token|password|passwd|credential)\\s*[:=]\\s*['\"][^'\"\\s]{12,}['\"]",
+      "flags": "i"
+    },
+    {
+      "label": "秘密の環境変数",
+      "pattern": "(API_KEY|SECRET|TOKEN|PASSWORD)\\s*=\\s*[^\\s#]{12,}",
+      "flags": "i"
+    },
+    {
+      "label": "Supabase service_roleキー",
+      "pattern": "service_role\\s*[:=]\\s*['\"]?eyJ",
+      "flags": "i"
+    }
+  ],
+  "protectedPaths": [
+    "(^|/)\\.github/",
+    "(^|/)\\.devcontainer/",
+    "(^|/)\\.claude/",
+    "(^|/)\\.cursor/",
+    "(^|/)\\.opencode/",
+    "(^|/)opencode\\.jsonc?$",
+    "(^|/)AGENTS\\.md$",
+    "(^|/)CLAUDE\\.md$",
+    "(^|/)wrangler\\.(jsonc|toml)$",
+    "(^|/)open-next\\.config\\.ts$",
+    "(^|/)next\\.config\\.(js|mjs|ts)$",
+    "(^|/)package(-lock)?\\.json$",
+    "(^|/)pnpm-lock\\.yaml$",
+    "(^|/)yarn\\.lock$",
+    "(^|/)bun\\.lockb?$",
+    "(^|/)requirements.*\\.txt$",
+    "(^|/)Cargo(\\.lock|\\.toml)$",
+    "(^|/)go\\.(mod|sum)$",
+    "(^|/)Gemfile(\\.lock)?$",
+    "(^|/)composer\\.(json|lock)$",
+    "(^|/)supabase_(schema|migration_.*)\\.sql$",
+    "(^|/)\\.env(\\.|$)",
+    "\\.pem$",
+    "(^|/)id_rsa",
+    "(^|/)id_ed25519",
+    "^src/lib/cloud/",
+    "^src/app/api/cloud/",
+    "^src/components/CloudPanel\\.tsx$",
+    "^src/lib/admin\\.ts$",
+    "^scripts/cloud-runner\\.mjs$",
+    "^workers/cloud-scheduler/",
+    "(^|/)\\.npmrc$",
+    "(^|/)\\.yarnrc.*$",
+    "(^|/)\\.gitmodules$",
+    "(^|/)Dockerfile$",
+    "(^|/)docker-compose.*\\.ya?ml$",
+    "(^|/)tsconfig.*\\.json$",
+    "(^|/)jsconfig.*\\.json$",
+    "(^|/)eslint\\.config\\.(js|mjs|cjs|ts)$"
+  ]
+}

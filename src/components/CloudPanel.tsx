@@ -22,6 +22,7 @@ const STATUS_META: Record<CloudJobStatus, { label: string; color: string; bg: st
   running: { label: '実行中', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.15)' },
   succeeded: { label: '完了', color: '#4ade80', bg: 'rgba(74, 222, 128, 0.15)' },
   failed: { label: '失敗', color: '#f87171', bg: 'rgba(248, 113, 113, 0.15)' },
+  blocked: { label: '安全確認待ち', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
   cancelled: { label: 'キャンセル', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' },
   timed_out: { label: '時間切れ', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
 };
@@ -48,9 +49,9 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [repo, setRepo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
@@ -76,7 +77,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   }, [load, refreshKey]);
 
   const activeJob = useMemo(
-    () => data?.jobs.find((job) => ['queued', 'provisioning', 'running'].includes(job.status)) ?? null,
+    () => data?.jobs.find((job) => ['queued', 'provisioning', 'running', 'blocked'].includes(job.status)) ?? null,
     [data],
   );
 
@@ -88,13 +89,12 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       const res = await fetch('/api/cloud/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, prompt, repo: repo.trim() || undefined }),
+        body: JSON.stringify({ title, prompt }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || '依頼の登録に失敗しました');
       setTitle('');
       setPrompt('');
-      setRepo('');
       setMessage('依頼を受け付けました。順番に実行します。');
       await load();
     } catch (error) {
@@ -119,6 +119,27 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     }
   };
 
+  const decide = async (job: CloudJob, action: 'approve' | 'reject') => {
+    if (deciding) return;
+    setDeciding(job.id);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/cloud/jobs/${job.id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || '操作に失敗しました');
+      setMessage(action === 'approve' ? '承認しました。順番に実行します。' : '却下しました。');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeciding(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -136,7 +157,8 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
           <Cloud size={20} className="text-accent" /> クラウド作業
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          AIエージェントがクラウド上で依頼を実行します。かかった時間とトークン使用量に応じてクレジットを消費します。
+          AIエージェントがクラウド作業環境で依頼を実行します。一般ユーザーの依頼は、アプリ本体のコードや秘密情報にアクセスできない隔離環境で実行されます。
+          かかった時間とトークン使用量に応じてクレジットを消費します。
         </p>
       </section>
 
@@ -180,9 +202,10 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
             {data.auto_enabled ? '有効' : '無効'}
             {data.auto_repo ? ` / 対象: ${data.auto_repo}` : ''}
             {` / 同時実行: ${data.max_concurrent}`}
+            {` / 自動PR: ${data.auto_push ? '有効' : '無効（承認待ち）'}`}
           </p>
           <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-            10分おきにアプリの課題を確認し、クラウド作業環境で解決します。
+            10分おきにアプリの課題を確認します。危険な指示・秘密情報・保護対象ファイルの変更を検出した場合は自動実行を停止します。
           </p>
         </div>
       )}
@@ -193,7 +216,8 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
             <SparklesIcon /> クラウドに依頼する
           </h3>
           <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-            調べもの、コードの作成、データ整理など、PCを離れている間に進めたい作業を書いてください。
+            調査、文章作成、データ整理など、PCを離れている間に進めたい作業を書いてください。
+            外部ネットワーク・シェル実行・秘密情報へのアクセスは許可されません。秘密情報らしき文字列は自動的に伏せられます。
             {activeJob && ' 実行中の作業が終わると次に進みます。'}
           </p>
 
@@ -213,14 +237,6 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
               maxLength={8000}
               style={{ ...inputStyle, resize: 'vertical' }}
             />
-            {data.is_admin && (
-              <input
-                value={repo}
-                onChange={(event) => setRepo(event.target.value)}
-                placeholder="対象リポジトリ（任意・管理者のみ / owner/repo）"
-                style={inputStyle}
-              />
-            )}
             {data.user_balance < data.estimated_credits && (
               <p style={{ fontSize: '0.65rem', color: '#f59e0b' }}>
                 残高が目安を下回っています。実行はできますが、利用分は残高の範囲で消費されます。
@@ -272,7 +288,9 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
                 job={job}
                 isAdmin={data.is_admin}
                 cancelling={cancelling === job.id}
+                deciding={deciding === job.id}
                 onCancel={() => void cancel(job)}
+                onDecide={(action) => void decide(job, action)}
               />
             ))}
           </div>
@@ -286,22 +304,32 @@ function JobRow({
   job,
   isAdmin,
   cancelling,
+  deciding,
   onCancel,
+  onDecide,
 }: {
   job: CloudJob;
   isAdmin: boolean;
   cancelling: boolean;
+  deciding: boolean;
   onCancel: () => void;
+  onDecide: (action: 'approve' | 'reject') => void;
 }) {
-  const meta = STATUS_META[job.status];
-  const active = ['queued', 'provisioning', 'running'].includes(job.status);
+  const meta = STATUS_META[job.status] ?? STATUS_META.failed;
+  const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
+  const canReview = isAdmin && job.status === 'blocked' && job.blocked_stage === 'precheck';
+  const showCodespace = isAdmin
+    && Boolean(job.codespace_url)
+    && (['provisioning', 'running'].includes(job.status) || job.keep_codespace === true);
   const Icon = job.status === 'succeeded'
     ? CheckCircle2
     : job.status === 'failed'
       ? XCircle
-      : active
-        ? Clock3
-        : Play;
+      : job.status === 'blocked'
+        ? ShieldCheck
+        : active
+          ? Clock3
+          : Play;
 
   return (
     <div
@@ -352,7 +380,57 @@ function JobRow({
         </p>
       )}
       {job.error && !job.result_summary && (
-        <p style={{ fontSize: '0.7rem', color: '#f87171', overflowWrap: 'anywhere' }}>{job.error}</p>
+        <p style={{ fontSize: '0.7rem', color: job.status === 'blocked' ? '#f59e0b' : '#f87171', overflowWrap: 'anywhere' }}>
+          {job.error}
+        </p>
+      )}
+
+      {isAdmin && job.human_approved && (
+        <p style={{ fontSize: '0.62rem', color: '#4ade80' }}>管理者承認済み</p>
+      )}
+
+      {isAdmin && job.security_flags && job.security_flags.length > 0 && (
+        <div
+          style={{
+            padding: '0.4rem 0.5rem',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '6px',
+            fontSize: '0.65rem',
+            color: '#f59e0b',
+          }}
+        >
+          検出: {job.security_flags.join(' / ')}
+        </div>
+      )}
+
+      {canReview && (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => onDecide('approve')}
+            disabled={deciding}
+            className="btn-primary"
+            style={{ padding: '0.35rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+          >
+            <ShieldCheck size={12} /> {deciding ? '処理中...' : '内容を確認して承認'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDecide('reject')}
+            disabled={deciding}
+            style={{
+              padding: '0.35rem 0.7rem',
+              fontSize: '0.7rem',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '8px',
+              color: 'white',
+            }}
+          >
+            却下
+          </button>
+        </div>
       )}
 
       {job.result_detail && job.result_detail !== job.result_summary && (
@@ -376,7 +454,7 @@ function JobRow({
         </details>
       )}
 
-      {(job.pr_url || (isAdmin && job.issue_url)) && (
+      {(job.pr_url || (isAdmin && job.issue_url) || showCodespace) && (
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
           {job.pr_url && (
             <a href={job.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>
@@ -386,6 +464,11 @@ function JobRow({
           {isAdmin && job.issue_url && (
             <a href={job.issue_url} target="_blank" rel="noreferrer" style={linkStyle}>
               <ExternalLink size={11} /> 課題
+            </a>
+          )}
+          {showCodespace && job.codespace_url && (
+            <a href={job.codespace_url} target="_blank" rel="noreferrer" style={linkStyle}>
+              <ExternalLink size={11} /> 作業環境を確認
             </a>
           )}
         </div>

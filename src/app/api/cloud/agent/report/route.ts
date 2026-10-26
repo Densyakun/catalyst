@@ -6,7 +6,7 @@ import type { CloudJobStatus } from '@/lib/types/cloud';
 
 export const dynamic = 'force-dynamic';
 
-const ALLOWED: CloudJobStatus[] = ['succeeded', 'failed', 'cancelled', 'timed_out'];
+const ALLOWED: CloudJobStatus[] = ['succeeded', 'failed', 'blocked', 'cancelled', 'timed_out'];
 
 function toNumber(value: unknown): number {
   const parsed = Number(value);
@@ -42,6 +42,12 @@ export async function POST(req: NextRequest) {
 
     const usage = body?.usage ?? {};
     const maxSeconds = Math.max(60, toNumber(job.max_minutes) * 60);
+    const blockedStage = body?.blocked_stage === 'precheck' || body?.blocked_stage === 'diff'
+      ? body.blocked_stage
+      : undefined;
+    const securityFlags = Array.isArray(body?.security_flags)
+      ? body.security_flags.filter((flag: unknown) => typeof flag === 'string').slice(0, 20)
+      : undefined;
 
     const updated = await finalizeCloudJob({
       jobId,
@@ -51,6 +57,9 @@ export async function POST(req: NextRequest) {
       error: typeof body?.error === 'string' ? body.error : undefined,
       prUrl: typeof body?.pr_url === 'string' ? body.pr_url : undefined,
       branch: typeof body?.branch === 'string' ? body.branch : undefined,
+      securityFlags,
+      blockedStage,
+      keepCodespace: body?.keep_codespace === true,
       usage: {
         runtimeSeconds: Math.min(maxSeconds, toNumber(usage.runtime_seconds)),
         inputTokens: toNumber(usage.input_tokens),

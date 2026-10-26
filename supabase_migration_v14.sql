@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS public.cloud_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     kind TEXT NOT NULL,                        -- 'app_issue' | 'user_task'
-    status TEXT NOT NULL DEFAULT 'queued',     -- 'queued','provisioning','running','succeeded','failed','cancelled','timed_out'
+    status TEXT NOT NULL DEFAULT 'queued',     -- 'queued','provisioning','running','succeeded','failed','blocked','cancelled','timed_out'
     source TEXT NOT NULL DEFAULT 'user',       -- 'github' | 'user'
     source_ref TEXT,                           -- 例: 'owner/repo#123'
     dedupe_key TEXT,                           -- 同じ課題を二重に実行しないためのキー
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS public.cloud_jobs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_jobs_dedupe
     ON public.cloud_jobs(dedupe_key)
     WHERE dedupe_key IS NOT NULL
-      AND status IN ('queued', 'provisioning', 'running', 'succeeded');
+      AND status IN ('queued', 'provisioning', 'running', 'succeeded', 'blocked', 'cancelled');
 
 CREATE INDEX IF NOT EXISTS idx_cloud_jobs_status_created
     ON public.cloud_jobs(status, priority DESC, created_at ASC);

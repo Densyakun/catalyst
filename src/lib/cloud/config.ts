@@ -31,15 +31,20 @@ export function getCloudConfig() {
     appUrl: text(process.env.NEXT_PUBLIC_APP_URL, 'http://localhost:3000').replace(/\/+$/, ''),
     autoEnabled: boolValue(process.env.CLOUD_AUTO_ENABLED, Boolean(repo && githubToken)),
     issueLabel: text(process.env.CLOUD_AUTO_ISSUE_LABEL),
-    maxIssuesPerTick: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_MAX_ISSUES, 1))),
+    maxIssuesPerTick: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_MAX_ISSUES, 4))),
     autoDailyLimit: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_DAILY_LIMIT, 4))),
     maxConcurrent: Math.max(1, Math.floor(numberValue(process.env.CLOUD_MAX_CONCURRENT, 1))),
     machine: text(process.env.CLOUD_CODESPACE_MACHINE, DEFAULT_MACHINE),
     devcontainerPath: text(process.env.CLOUD_DEVCONTAINER_PATH, DEFAULT_DEVCONTAINER),
     ref: text(process.env.CLOUD_GITHUB_REF),
-    idleMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_CODESPACE_IDLE_MINUTES, 30))),
+    idleMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_CODESPACE_IDLE_MINUTES, 60))),
     retentionMinutes: Math.max(0, Math.floor(numberValue(process.env.CLOUD_CODESPACE_RETENTION_MINUTES, 60))),
+    runnerIdleMinutes: Math.max(1, Math.floor(numberValue(process.env.CLOUD_RUNNER_IDLE_MINUTES, 15))),
+    keepReviewCodespace: boolValue(process.env.CLOUD_KEEP_REVIEW_CODESPACE, false),
     jobMaxMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_JOB_MAX_MINUTES, 30))),
+    autoPush: boolValue(process.env.CLOUD_AUTO_PUSH, false),
+    maxDiffLines: Math.max(50, Math.floor(numberValue(process.env.CLOUD_MAX_DIFF_LINES, 1500))),
+    sandboxUser: text(process.env.CLOUD_SANDBOX_USER, 'agent'),
     model: text(process.env.OPENCODE_MODEL, DEFAULT_MODEL),
     creditPerMinute: numberValue(process.env.CLOUD_CREDIT_PER_MINUTE, 0.5),
     creditPer1kTokens: numberValue(process.env.CLOUD_CREDIT_PER_1K_TOKENS, 0.05),
@@ -48,10 +53,6 @@ export function getCloudConfig() {
     estimateCredits: Math.max(1, numberValue(process.env.CLOUD_ESTIMATE_CREDITS, 20)),
     dailyLimit: Math.max(1, Math.floor(numberValue(process.env.CLOUD_USER_DAILY_LIMIT, 3))),
     autoUsePool: boolValue(process.env.CLOUD_AUTO_USE_POOL, false),
-    allowedRepos: text(process.env.CLOUD_ALLOWED_REPOS)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean),
   };
 }
 

@@ -6,8 +6,11 @@ export type CloudJobStatus =
   | 'running'
   | 'succeeded'
   | 'failed'
+  | 'blocked'
   | 'cancelled'
   | 'timed_out';
+
+export type CloudBlockedStage = 'precheck' | 'diff';
 
 export type CloudFunding = 'user' | 'system' | 'donation_pool';
 
@@ -36,6 +39,10 @@ export interface CloudJob {
   result_summary: string | null;
   result_detail?: string | null;
   error: string | null;
+  blocked_stage?: CloudBlockedStage | null;
+  security_flags?: string[];
+  human_approved?: boolean;
+  keep_codespace?: boolean;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -51,6 +58,7 @@ export interface CloudOverview {
   daily_used: number;
   auto_enabled: boolean;
   auto_repo: string | null;
+  auto_push: boolean;
   max_concurrent: number;
   jobs: CloudJob[];
   message?: string;
