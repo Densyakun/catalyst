@@ -319,3 +319,76 @@ code {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ============================================================
+   ナビゲーション / タブ別レイアウト
+   ============================================================ */
+.app-nav {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  margin: 0 0 0.8rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  position: sticky;
+  top: 0.35rem;
+  z-index: 40;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow-x: auto;
+}
+
+.app-nav-btn {
+  flex: 1;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.app-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+.app-nav-btn.active {
+  background: var(--accent-gradient);
+  color: white;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.panel-grid > * {
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .app-nav {
+    position: static;
+    border-radius: 10px;
+  }
+
+  .app-nav-btn {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.72rem;
+  }
+
+  .panel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

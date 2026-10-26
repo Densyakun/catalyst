@@ -2,8 +2,15 @@ import { generateObjectForRole } from '@/lib/ai/call';
 import { z } from 'zod';
 import type { ChatMessage } from '@/lib/types/engine';
 
-interface ChatAnalysis {
+export type CaptureType = 'problem' | 'idea' | 'feedback' | 'question' | 'document';
+
+export interface ChatAnalysis {
   reply: string;
+  capture_type: CaptureType;
+  feedback: {
+    category: 'dissatisfaction' | 'desire' | 'interest' | 'bug' | 'praise' | 'other';
+    message: string;
+  } | null;
   extracted_items: {
     problems: { description: string; category: string; urgency: 'low' | 'medium' | 'high' }[];
     resources: { name: string; type: string; description: string }[];
@@ -57,6 +64,12 @@ export async function analyzeChatMessage(
   const { object } = await generateObjectForRole<ChatAnalysis>('structuring', {
     schema: z.object({
       reply: z.string().describe('ユーザーへの返答。情報を引き出す質問を含めてよい'),
+      capture_type: z.enum(['problem', 'idea', 'feedback', 'question', 'document'])
+        .describe('入力の振り分け先。個人の困りごと=problem、思いつき/将来やりたいこと=idea、アプリ自体への不満・要望・バグ=feedback、ドキュメント操作=document、それ以外=question'),
+      feedback: z.object({
+        category: z.enum(['dissatisfaction', 'desire', 'interest', 'bug', 'praise', 'other']),
+        message: z.string().describe('アプリへの要望・不満の要約'),
+      }).nullable().describe('capture_typeがfeedbackの場合のみ設定。それ以外はnull'),
       extracted_items: z.object({
         problems: z.array(z.object({
           description: z.string(),
@@ -98,6 +111,14 @@ export async function analyzeChatMessage(
    - 「ドキュメントから課題をまとめて」「ソースの内容を分析して」→ source_action: {type: 'process', keywords: [], prompt: '課題をまとめて'}
    - 「○○のドキュメントから要点を抽出して」→ source_action: {type: 'process', keywords: ['○○'], prompt: '要点を抽出して'}
    - ソース操作でない場合 → source_action: null
+9. 入力の振り分け(capture_type)を必ず1つ選ぶ:
+   - ユーザー自身の困りごと・解決したい課題 → 'problem'
+   - 将来やりたいこと・思いつき・ひらめき → 'idea'（この場合、extracted_items.problemsは空にする）
+   - このアプリ自体への不満・要望・不具合・称賛 → 'feedback'（feedbackにcategoryと要約を入れ、extracted_items.problemsは空にする）
+   - ドキュメントの取り込み・処理の指示 → 'document'
+   - それ以外の質問・雑談 → 'question'
+10. feedback.categoryの対応: 不満=dissatisfaction, 〜してほしい=desire, 興味=interest, 不具合=bug, 良い=praise, その他=other
+11. replyでは振り分け結果を自然に伝える（例: 「改善要望として受け取りました」「アイデアとして保存しました」）。
 
 【会話履歴】
 ${history || 'なし'}

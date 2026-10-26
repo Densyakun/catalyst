@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { analyzeChatMessage } from '@/lib/ai/agents/chat-analyzer';
+import { inferSentiment } from '@/lib/feedback/sentiment';
 import { logCost } from '@/lib/cost/model';
 import type { ChatMessage } from '@/lib/types/engine';
 
@@ -113,17 +114,55 @@ export async function POST(req: NextRequest) {
 
     const updatedMessages = [...existingMessages, userMessage, assistantMessage];
 
-    // 抽出された課題を保存
-    for (const problem of analysis.extracted_items.problems) {
-      await supabase.from('auto_insights').insert({
+    const captureType = analysis.capture_type ?? 'question';
+    let feedbackSaved = false;
+    let ideaSaved = false;
+
+    // アプリ自体へのフィードバックは自己進化エンジンへ
+    if (captureType === 'feedback') {
+      const feedbackCategory = analysis.feedback?.category ?? 'dissatisfaction';
+      const feedbackMessage = (analysis.feedback?.message || message).slice(0, 2000);
+      const { error: feedbackError } = await supabase.from('user_feedback').insert({
         user_id: user.id,
-        insight_type: 'detected_problem',
-        title: problem.description,
-        content: `カテゴリ: ${problem.category}\n緊急度: ${problem.urgency}\n\nチャットから検出`,
-        estimated_cost: { time: '未推定', money: 0 },
-        auto_proceed: false,
-        status: 'pending',
+        category: feedbackCategory,
+        rating: null,
+        message: feedbackMessage,
+        context_path: '/',
+        context_feature: 'unified_capture',
+        sentiment: inferSentiment(feedbackCategory, feedbackMessage),
       });
+      feedbackSaved = !feedbackError;
+    }
+
+    // 思いつき・将来やりたいことは、AI処理を待つアイデアとして保存
+    if (captureType === 'idea') {
+      const now = new Date().toISOString();
+      const { error: ideaError } = await supabase.from('idea_inbox').insert({
+        user_id: user.id,
+        title: (analysis.suggested_title || message).slice(0, 100),
+        content: message,
+        source: 'manual',
+        status: 'pending',
+        next_retry_at: now,
+        scheduled_at: now,
+        updated_at: now,
+      });
+      ideaSaved = !ideaError;
+    }
+
+    // 抽出された課題を保存（フィードバック・アイデアは課題化しない）
+    if (captureType !== 'feedback' && captureType !== 'idea') {
+      for (const problem of analysis.extracted_items.problems) {
+        await supabase.from('auto_insights').insert({
+          user_id: user.id,
+          insight_type: 'detected_problem',
+          title: problem.description,
+          content: `カテゴリ: ${problem.category}\n緊急度: ${problem.urgency}\n\nチャットから検出`,
+          estimated_cost: { time: '未推定', money: 0 },
+          auto_proceed: false,
+          status: 'pending',
+        });
+      }
     }
 
     // 抽出されたリソースを保存
@@ -358,6 +397,9 @@ ${sourceContext}
     return NextResponse.json({
       conversation_id: conversationId,
       reply: assistantMessage,
+      capture_type: captureType,
+      feedback_saved: feedbackSaved,
+      idea_saved: ideaSaved,
       extracted_items: analysis.extracted_items,
       insight_updated: insightUpdated,
       reinvestigate_result: reinvestigateResult,

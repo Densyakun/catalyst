@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import type { CreateFeedbackRequest, FeedbackSentiment } from '@/lib/types/evolution';
+import { inferSentiment } from '@/lib/feedback/sentiment';
+import type { CreateFeedbackRequest } from '@/lib/types/evolution';
 
 /**
  * 明示的フィードバック（不満・欲求・興味・バグ・称賛）を収集する。
@@ -71,19 +72,4 @@ export async function GET() {
   }
 }
 
-const NEGATIVE_HINTS = ['使えない', 'わからない', '分からない', '難しい', '不便', '遅い', 'うまく', '失敗', 'バグ', 'エラー', '嫌', 'だめ', 'ダメ', '不満', '消えた', 'できない'];
 
-function inferSentiment(
-  category: string,
-  message: string,
-  rating?: number,
-): FeedbackSentiment {
-  if (typeof rating === 'number') {
-    if (rating <= 2) return 'negative';
-    if (rating >= 4) return 'positive';
-  }
-  if (category === 'praise') return 'positive';
-  if (category === 'dissatisfaction' || category === 'bug') return 'negative';
-  if (NEGATIVE_HINTS.some((hint) => message.includes(hint))) return 'negative';
-  return 'neutral';
-}

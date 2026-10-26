@@ -206,7 +206,7 @@ export default function InsightsPanel({ onEditInChat, refreshKey }: InsightsPane
       className="glass-panel"
       style={{ padding: '0.8rem', marginBottom: 0 }}
     >
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: '0 0 0.2rem 0', fontSize: '0.85rem' }}>
         <Lightbulb size={14} className="text-accent" />
         自動インサイト
         {activeInsights.length > 0 && (
@@ -221,6 +221,9 @@ export default function InsightsPanel({ onEditInChat, refreshKey }: InsightsPane
           </span>
         )}
       </h3>
+      <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', margin: '0 0 0.55rem' }}>
+        AIが見つけた「やるべきこと候補」です。進める・保留を選ぶと、今日の1つや計画に反映されます。
+      </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {activeInsights.map((insight) => (

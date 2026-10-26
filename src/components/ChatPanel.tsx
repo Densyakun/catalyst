@@ -36,6 +36,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
   } | null>(null);
   const [reinvestigateResult, setReinvestigateResult] = useState<string | null>(null);
   const [sourceActionResult, setSourceActionResult] = useState<string | null>(null);
+  const [captureResult, setCaptureResult] = useState<{ type: string; ideaSaved: boolean; feedbackSaved: boolean } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -51,6 +52,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchConversations();
   }, [fetchConversations]);
 
@@ -63,12 +65,14 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
     setMessages(conv.messages || []);
     setShowHistory(false);
     setExtractedSummary(null);
+    setCaptureResult(null);
   };
 
   const startNewConversation = () => {
     setActiveConvId(null);
     setMessages([]);
     setExtractedSummary(null);
+    setCaptureResult(null);
   };
 
   const sendMessage = async () => {
@@ -107,6 +111,11 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         setActiveConvId(data.conversation_id);
         setMessages((prev) => [...prev, data.reply]);
         setExtractedSummary(data.extracted_items);
+        setCaptureResult({
+          type: data.capture_type || 'question',
+          ideaSaved: Boolean(data.idea_saved),
+          feedbackSaved: Boolean(data.feedback_saved),
+        });
         setReinvestigateResult(data.reinvestigate_result || null);
         setSourceActionResult(data.source_action_result || null);
         if (data.insight_updated) {
@@ -144,10 +153,15 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
     >
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
-          <MessageSquare size={14} className="text-accent" />
-          チャット
-        </h3>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0, fontSize: '0.85rem' }}>
+            <MessageSquare size={14} className="text-accent" />
+            クイック入力
+          </h3>
+          <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0' }}>
+            困りごと・思いつき・アプリへの要望を自動で振り分けます
+          </p>
+        </div>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
           <button
             onClick={() => setShowHistory(!showHistory)}
@@ -277,7 +291,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
       }}>
         {messages.length === 0 && (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
-            課題やリソースを自動で検出します。ドキュメントの追加・処理もここから指示できます
+            例:「仕事の優先順位が決められない」「こういうサービスがあったらいいな」「この画面が分かりにくい」
           </p>
         )}
         {messages.map((msg, i) => (
@@ -375,6 +389,27 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
         </motion.div>
       )}
 
+      {/* 振り分け結果 */}
+      {captureResult && (captureResult.ideaSaved || captureResult.feedbackSaved) && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: '0.5rem 0.7rem',
+            background: captureResult.feedbackSaved ? 'rgba(59, 130, 246, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+            border: `1px solid ${captureResult.feedbackSaved ? 'rgba(59, 130, 246, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            borderRadius: '6px',
+            marginBottom: '0.5rem',
+            fontSize: '0.72rem',
+            color: captureResult.feedbackSaved ? '#60a5fa' : '#f59e0b',
+          }}
+        >
+          {captureResult.feedbackSaved
+            ? 'アプリへの要望として記録しました。改善に活用します。'
+            : 'アイデアとして保存しました。後でAIが整理して提案に変えます。'}
+        </motion.div>
+      )}
+
       {/* Reinvestigate Result */}
       {reinvestigateResult && (
         <motion.div
@@ -429,7 +464,7 @@ export default function ChatPanel({ editingInsight, onClearEditingInsight, onIns
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、ドキュメントの追加・処理指示など..."}
+          placeholder={editingInsight ? `「${editingInsight.title}」をどう修正しますか？` : "困っていること、思いついたこと、アプリへの要望..."}
           disabled={sending}
           style={{
             flex: 1,
