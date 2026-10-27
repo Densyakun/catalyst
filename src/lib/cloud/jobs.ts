@@ -6,6 +6,7 @@ import {
   createCodespace,
   getCodespace,
   getRepo,
+  GitHubError,
   listDevcontainerPaths,
   listOpenIssues,
   listRepoCodespaceSecrets,
@@ -163,6 +164,9 @@ const RUNNER_REQUIRED_SECRETS = [
   'CATALYST_CLOUD_RUNNER_TOKEN',
   'OPENCODE_GO_API_KEY',
 ] as const;
+
+const CODESPACES_BUDGET_MESSAGE =
+  'GitHub Codespaces の利用上限（予算）に達しているため、作業環境を起動できません。GitHub の Billing 設定で Codespaces の予算を増やすと再開します。';
 
 export interface RunnerReadiness {
   checked_at: string;
@@ -565,19 +569,38 @@ export async function startQueuedJobs(): Promise<number> {
 
       started += 1;
 
+      const nextMetadata: Record<string, unknown> = {
+        ...((job.metadata as Record<string, unknown> | null) || {}),
+        runner_readiness: readiness,
+        codespace_state: codespaceState,
+        codespace_state_at: now,
+      };
+      delete nextMetadata.provision_error;
+      delete nextMetadata.provision_error_at;
       await admin
         .from('cloud_jobs')
-        .update({
-          metadata: {
-            ...((job.metadata as Record<string, unknown> | null) || {}),
-            runner_readiness: readiness,
-            codespace_state: codespaceState,
-            codespace_state_at: now,
-          },
-        })
+        .update({ metadata: nextMetadata })
         .eq('id', String(job.id));
     } catch (error) {
       console.error('Creating cloud session failed:', error);
+      if (error instanceof GitHubError && error.status === 402) {
+        // Codespaces の無料枠・予算を使い切っている。作成を繰り返しても
+        // 課金状態が変わるまで成功しないため、管理者が気づける理由を残す。
+        const metadata = (job.metadata as Record<string, unknown> | null) || {};
+        await admin
+          .from('cloud_jobs')
+          .update({
+            error: CODESPACES_BUDGET_MESSAGE,
+            metadata: {
+              ...metadata,
+              provision_error: 'codespaces_budget_exceeded',
+              provision_error_at: new Date().toISOString(),
+            },
+          })
+          .eq('id', String(job.id))
+          .eq('status', 'queued');
+        continue;
+      }
       if (codespaceName) {
         try {
           await stopCodespace(config.githubToken, codespaceName);
