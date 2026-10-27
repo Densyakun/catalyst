@@ -605,6 +605,39 @@ export async function sweepStaleJobs(): Promise<number> {
   const config = getCloudConfig();
   const admin = createAdminClient();
   const now = Date.now();
+
+  // ランナーが接続する前にどこで止まっているかを追跡する。
+  // 起動待ちのジョブについて、Codespace の状態を定期的に記録する。
+  try {
+    const { data: pending } = await admin
+      .from('cloud_jobs')
+      .select('id, codespace_name, metadata')
+      .eq('status', 'provisioning')
+      .not('codespace_name', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(5);
+    for (const job of (pending || []) as Row[]) {
+      const info = await getCodespace(config.githubToken, String(job.codespace_name)).catch(
+        () => null,
+      );
+      if (!info) continue;
+      const metadata = (job.metadata as Record<string, unknown> | null) || {};
+      if (metadata.codespace_state === info.state) continue;
+      await admin
+        .from('cloud_jobs')
+        .update({
+          metadata: {
+            ...metadata,
+            codespace_state: info.state,
+            codespace_state_at: new Date().toISOString(),
+          },
+        })
+        .eq('id', String(job.id));
+    }
+  } catch (error) {
+    console.error('Tracking codespace state failed:', error);
+  }
+
   const staleHeartbeatCutoff = now - 2 * 60 * 1000;
   const deadHeartbeatCutoff = now - 10 * 60 * 1000;
   const runningLookback = new Date(now - 10 * 60 * 1000).toISOString();
