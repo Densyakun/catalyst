@@ -173,14 +173,23 @@ export async function enqueueAppIssues(): Promise<number> {
   });
   if (issues.length === 0) return 0;
 
+  // 議論・重複・対応不要の Issue まで実装対象にすると、実装できない課題のたびに
+  // Codespace が起動してしまうため、実装対象外のラベルは最初から除外する。
+  const ignoredLabels = new Set(config.autoSkipLabels);
   // 大きな企画（epic）よりも、短く具体的な Issue を優先する。
   // クラウドエージェントは1回の実行で小さな改善を完了させる必要がある。
-  const candidates = [...issues].sort((a, b) => {
-    const aEpic = a.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
-    const bEpic = b.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
-    if (aEpic !== bEpic) return aEpic - bEpic;
-    return (a.body?.length || 0) - (b.body?.length || 0);
-  });
+  const candidates = [...issues]
+    .filter(
+      (issue) =>
+        !issue.labels.some((label) => ignoredLabels.has(label.trim().toLowerCase())),
+    )
+    .sort((a, b) => {
+      const aEpic = a.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
+      const bEpic = b.labels.some((label) => /epic|企画|大規模/i.test(label)) ? 1 : 0;
+      if (aEpic !== bEpic) return aEpic - bEpic;
+      return (a.body?.length || 0) - (b.body?.length || 0);
+    });
+  if (candidates.length === 0) return 0;
   const admin = createAdminClient();
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
@@ -191,7 +200,7 @@ export async function enqueueAppIssues(): Promise<number> {
     .gte('created_at', startOfDay.toISOString());
   if ((todayCount ?? 0) >= config.autoDailyLimit) return 0;
 
-  const dedupeKeys = issues.map((issue) => `github:${config.repo}#${issue.number}`);
+  const dedupeKeys = candidates.map((issue) => `github:${config.repo}#${issue.number}`);
   const { data: existing } = await admin
     .from('cloud_jobs')
     .select('dedupe_key')
@@ -200,17 +209,22 @@ export async function enqueueAppIssues(): Promise<number> {
   const known = new Set((existing || []).map((row) => String(row.dedupe_key)));
 
   // 失敗・時間切れを繰り返した Issue は、同じ Issue ばかりに枠を使わないよう
-  // 一定時間クールダウンしてから再実行する。
-  const retryWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: recentFailures } = await admin
+  // 一定時間クールダウンしてから再実行する。ただし再試行回数には上限を設ける。
+  // 上限がないと、実装できない自己進化の課題が残っている限り Codespace が起動し続ける。
+  // 試行回数は直近7日間で数える。一時的な障害で永久にブロックしないよう、
+  // 一定期間が過ぎれば再試行の機会を残す。
+  const attemptWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: failureRows } = await admin
     .from('cloud_jobs')
     .select('dedupe_key, finished_at, created_at')
     .in('dedupe_key', dedupeKeys)
     .in('status', ['failed', 'timed_out'])
-    .gte('created_at', retryWindowStart);
+    .gte('created_at', attemptWindowStart);
+  const failureCounts = new Map<string, number>();
   const lastFailureAt = new Map<string, number>();
-  for (const row of recentFailures || []) {
+  for (const row of failureRows || []) {
     const key = String(row.dedupe_key);
+    failureCounts.set(key, (failureCounts.get(key) || 0) + 1);
     const raw = row.finished_at || row.created_at;
     const at = raw ? Date.parse(String(raw)) : NaN;
     if (!Number.isFinite(at)) continue;
@@ -224,15 +238,25 @@ export async function enqueueAppIssues(): Promise<number> {
 
     const dedupeKey = `github:${config.repo}#${issue.number}`;
     if (known.has(dedupeKey)) continue;
-    const lastFailure = lastFailureAt.get(dedupeKey);
-    if (lastFailure && Date.now() - lastFailure < retryCooldownMs) continue;
+
+    const attempts = failureCounts.get(dedupeKey) || 0;
+    const retryExhausted = attempts >= config.autoMaxAttempts;
+    if (!retryExhausted) {
+      const lastFailure = lastFailureAt.get(dedupeKey);
+      if (lastFailure && Date.now() - lastFailure < retryCooldownMs) continue;
+    }
 
     const rawIssue = `${issue.title}\n${issue.body || ''}`;
     const flags = Array.from(new Set([
       ...scanUntrustedText(rawIssue),
       ...scanSecrets(rawIssue).map((label) => `秘密情報の可能性: ${label}`),
     ]));
-    const blocked = flags.length > 0;
+    const blocked = flags.length > 0 || retryExhausted;
+    const error = retryExhausted
+      ? `自動実行の試行上限（${config.autoMaxAttempts}回）に達したため停止しました。管理者が内容を確認してください。`
+      : blocked
+        ? '安全確認が必要な内容を検出したため停止しました。管理者の承認後に実行します。'
+        : null;
 
     const job = await insertJob({
       user_id: null,
@@ -252,17 +276,16 @@ export async function enqueueAppIssues(): Promise<number> {
       max_minutes: config.jobMaxMinutes,
       funded_by: config.autoUsePool ? 'donation_pool' : 'system',
       credits_estimated: config.estimateCredits,
-      error: blocked
-        ? '安全確認が必要な内容を検出したため停止しました。管理者の承認後に実行します。'
-        : null,
+      error,
       metadata: {
         labels: issue.labels,
         security_flags: flags,
         blocked_stage: blocked ? 'precheck' : null,
+        ...(retryExhausted ? { attempts, retry_exhausted: true } : {}),
       },
     });
 
-    if (job) created += 1;
+    if (job && !retryExhausted) created += 1;
   }
 
   return created;
@@ -280,17 +303,36 @@ export async function startQueuedJobs(): Promise<number> {
   const slots = config.maxConcurrent - (activeSessions || []).length;
   if (slots <= 0) return 0;
 
-  const { count: queuedCount } = await admin
-    .from('cloud_jobs')
+  // 直近1時間に起動失敗（ランナー未接続）が続いている場合は、設定不備などで
+  // Codespace の作成と停止を無限に繰り返さないよう、新規作成を止める。
+  const failureCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count: recentStartFailures } = await admin
+    .from('cloud_sessions')
     .select('id', { count: 'exact', head: true })
-    .eq('status', 'queued');
-  if (!queuedCount) return 0;
+    .eq('status', 'failed')
+    .gte('created_at', failureCutoff);
+  if ((recentStartFailures ?? 0) >= config.maxStartFailuresPerHour) {
+    console.error(
+      `Skipping codespace creation: ${recentStartFailures} sessions failed to start in the last hour`,
+    );
+    return 0;
+  }
+
+  const { data: queuedJobs } = await admin
+    .from('cloud_jobs')
+    .select('id')
+    .eq('status', 'queued')
+    .order('priority', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(Math.min(slots, 10));
+  if (!queuedJobs || queuedJobs.length === 0) return 0;
 
   const repo = await getRepo(config.githubToken, config.repo);
-  const toCreate = Math.min(slots, queuedCount);
+  const toCreate = Math.min(slots, queuedJobs.length);
   let started = 0;
 
-  for (let index = 0; index < toCreate; index += 1) {
+  for (const job of queuedJobs.slice(0, toCreate)) {
+    let codespaceName = '';
     try {
       const now = new Date().toISOString();
       const codespace = await createCodespace(config.githubToken, {
@@ -302,6 +344,7 @@ export async function startQueuedJobs(): Promise<number> {
         retentionPeriodMinutes: config.retentionMinutes,
         displayName: `katalyst-session-${Date.now().toString(36)}`,
       });
+      codespaceName = codespace.name;
 
       const { error } = await admin.from('cloud_sessions').insert({
         codespace_name: codespace.name,
@@ -319,9 +362,75 @@ export async function startQueuedJobs(): Promise<number> {
         throw error;
       }
 
+      // 起動した環境を特定のジョブに割り当てる。ジョブを queued のままにすると
+      // ランナーが来なかった場合に「起動したのに何も実行されない」状態が続く。
+      const { data: assigned, error: assignError } = await admin
+        .from('cloud_jobs')
+        .update({
+          status: 'provisioning',
+          codespace_name: codespace.name,
+          codespace_url: codespace.webUrl || null,
+          started_at: now,
+          heartbeat_at: now,
+        })
+        .eq('id', String(job.id))
+        .eq('status', 'queued')
+        .select('id')
+        .maybeSingle();
+
+      if (assignError) throw assignError;
+      if (!assigned) {
+        // 別のランナーが先にジョブを取得していた場合、この環境は使わない。
+        // ただし取得先がこの Codespace 自身なら、そのまま処理を続ける。
+        const { data: currentJob } = await admin
+          .from('cloud_jobs')
+          .select('status, codespace_name')
+          .eq('id', String(job.id))
+          .maybeSingle();
+        const claimedHere = currentJob
+          && String(currentJob.codespace_name || '') === codespace.name
+          && ['provisioning', 'running'].includes(String(currentJob.status));
+        if (claimedHere) {
+          started += 1;
+          continue;
+        }
+
+        try {
+          await stopCodespace(config.githubToken, codespace.name);
+        } catch (stopError) {
+          console.error('Stopping unused codespace failed:', stopError);
+        }
+        await admin
+          .from('cloud_sessions')
+          .update({
+            status: 'stopped',
+            stopped_at: now,
+            updated_at: now,
+          })
+          .eq('codespace_name', codespace.name);
+        continue;
+      }
+
       started += 1;
     } catch (error) {
       console.error('Creating cloud session failed:', error);
+      if (codespaceName) {
+        try {
+          await stopCodespace(config.githubToken, codespaceName);
+        } catch (stopError) {
+          console.error('Stopping failed codespace failed:', stopError);
+        }
+        const now = new Date().toISOString();
+        await admin
+          .from('cloud_sessions')
+          .update({
+            status: 'failed',
+            current_job_id: null,
+            stopped_at: now,
+            updated_at: now,
+          })
+          .eq('codespace_name', codespaceName);
+      }
     }
   }
 
@@ -335,7 +444,10 @@ export async function sweepStaleJobs(): Promise<number> {
   const staleHeartbeatCutoff = now - 2 * 60 * 1000;
   const deadHeartbeatCutoff = now - 10 * 60 * 1000;
   const runningLookback = new Date(now - 10 * 60 * 1000).toISOString();
-  const staleProvisioningCutoff = new Date(now - 15 * 60 * 1000).toISOString();
+  // ランナー起動待ちの判定より後にプロビジョニングの打ち切りが来るようにする。
+  const staleProvisioningCutoff = new Date(
+    now - Math.max(15, config.runnerStartTimeoutMinutes + 5) * 60 * 1000,
+  ).toISOString();
 
   const [{ data: runningRows }, { data: staleProvisioning }] = await Promise.all([
     admin
@@ -396,6 +508,68 @@ export async function sweepStaleJobs(): Promise<number> {
   const reviewStaleCutoff = new Date(
     now - Math.max(config.runnerIdleMinutes + 3, 30) * 60 * 1000,
   ).toISOString();
+
+  // Codespace は作成されたがランナーが一度も接続していない場合、何も実行されない
+  // まま残り、次の tick でまた新しい Codespace が作成され続ける。
+  // 起動タイムアウトを過ぎたら失敗として確定し、割り当て済みジョブも終了させる。
+  const runnerStartCutoff = new Date(
+    now - config.runnerStartTimeoutMinutes * 60 * 1000,
+  ).toISOString();
+  const { data: neverStartedSessions } = await admin
+    .from('cloud_sessions')
+    .select('*')
+    .eq('status', 'starting')
+    .lt('runner_seen_at', runnerStartCutoff)
+    .limit(20);
+
+  for (const session of (neverStartedSessions || []) as Row[]) {
+    const codespaceName = String(session.codespace_name || '');
+    const nowIso = new Date(now).toISOString();
+    const { data: assignedJobs } = codespaceName
+      ? await admin
+          .from('cloud_jobs')
+          .select('*')
+          .eq('codespace_name', codespaceName)
+          .in('status', ['provisioning', 'running'])
+      : { data: [] as Row[] };
+
+    for (const job of (assignedJobs || []) as Row[]) {
+      const startedAt = job.started_at ? new Date(String(job.started_at)).getTime() : now;
+      await finalizeCloudJob({
+        jobId: String(job.id),
+        status: 'failed',
+        summary: '作業環境が起動しなかったため停止しました。',
+        error: 'runner_start_timeout',
+        usage: {
+          runtimeSeconds: Math.max(0, Math.floor((now - startedAt) / 1000)),
+          inputTokens: num(job.input_tokens),
+          outputTokens: num(job.output_tokens),
+          costUsd: num(job.cost_usd),
+        },
+        stopCodespaceAfter: true,
+      });
+    }
+
+    if (codespaceName && config.githubToken && (assignedJobs || []).length === 0) {
+      try {
+        await stopCodespace(config.githubToken, codespaceName);
+      } catch (error) {
+        console.error('Stopping never-started codespace failed:', error);
+      }
+    }
+
+    await admin
+      .from('cloud_sessions')
+      .update({
+        status: 'failed',
+        current_job_id: null,
+        stopped_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', session.id);
+    stopped += 1;
+  }
+
   const [{ data: activeSessions }, { data: reviewSessions }] = await Promise.all([
     admin
       .from('cloud_sessions')
@@ -781,19 +955,25 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
     : { data: null };
   const session = (sessionData as Row | null) ?? null;
   const sessionExists = Boolean(session);
-  const fatal = ['sandbox_setup_failed', 'opencode_failed', 'repo_reset_failed'].includes(String(input.error || ''));
+  const fatal = ['sandbox_setup_failed', 'opencode_failed', 'repo_reset_failed', 'runner_start_timeout'].includes(String(input.error || ''));
   const alreadyStopped = session
     ? ['stopping', 'stopped', 'failed'].includes(String(session.status))
     : false;
+  const requestedKeep = Boolean(input.keepCodespace)
+    && config.keepReviewCodespace
+    && sessionExists
+    && (input.status === 'blocked' || input.status === 'failed');
   const shouldStop = !sessionExists
     || alreadyStopped
     || ['timed_out', 'cancelled'].includes(input.status)
-    || (input.status === 'failed' && fatal);
-  const keepReview = Boolean(input.keepCodespace)
-    && config.keepReviewCodespace
-    && sessionExists
-    && !shouldStop
-    && (input.status === 'blocked' || input.status === 'failed');
+    || (input.status === 'failed' && fatal)
+    // 自動実行の app_issue は、変更なし・型エラーなどで終わった場合に
+    // Codespace を idle のまま残すと次の課題で起動し続けるため即停止する。
+    // 管理者が明示的に保持を要求した場合だけ review として残す。
+    || (job.kind === 'app_issue'
+      && ['failed', 'blocked'].includes(input.status)
+      && !requestedKeep);
+  const keepReview = requestedKeep && !shouldStop;
   const sessionStatus = keepReview ? 'review' : shouldStop ? 'stopped' : 'idle';
 
   const runtimeSeconds = Math.max(

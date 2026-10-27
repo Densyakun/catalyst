@@ -1262,14 +1262,24 @@ async function main() {
   let idleMinutes = 15;
   let idleSince = Date.now();
   let inactiveChecks = 0;
+  let consecutiveApiFailures = 0;
 
   while (true) {
     let response;
     try {
       response = await api('/api/cloud/agent/next', { codespace_name: CODESPACE_NAME });
+      consecutiveApiFailures = 0;
     } catch (error) {
-      console.error('Failed to get next job:', error);
-      break;
+      consecutiveApiFailures += 1;
+      console.error(`Failed to get next job (attempt ${consecutiveApiFailures}):`, error);
+      // 一時的な API 障害で即終了すると、Codespace だけが起動したまま
+      // 実装が行われない。バックオフして再試行し、長期障害時だけ再起動する。
+      if (consecutiveApiFailures >= 20) {
+        console.error('Giving up after repeated API failures; restarting runner');
+        process.exit(1);
+      }
+      await sleep(Math.min(60000, 3000 * consecutiveApiFailures));
+      continue;
     }
 
     if (typeof response.runner_idle_minutes === 'number') {
@@ -1278,8 +1288,9 @@ async function main() {
 
     if (!response.job) {
       if (response.session_active === false) {
+        // セッション行の反映遅れで誤って終了しないよう、しばらく猶予を持つ。
         inactiveChecks += 1;
-        if (inactiveChecks >= 3) {
+        if (inactiveChecks >= 18) {
           console.log('Session is no longer active');
           break;
         }

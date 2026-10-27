@@ -34,6 +34,17 @@ export function getCloudConfig() {
     maxIssuesPerTick: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_MAX_ISSUES, 4))),
     autoDailyLimit: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_DAILY_LIMIT, 4))),
     autoRetryCooldownMinutes: Math.max(0, Math.floor(numberValue(process.env.CLOUD_AUTO_RETRY_COOLDOWN_MINUTES, 45))),
+    // 同じ Issue を無制限に再実行すると、実装できない課題のたびに Codespace が
+    // 起動し続けるため、失敗回数の上限に達したら自動実行を打ち切る。
+    autoMaxAttempts: Math.max(1, Math.floor(numberValue(process.env.CLOUD_AUTO_MAX_ATTEMPTS, 2))),
+    // 実装に進めない Issue を最初から拾わないためのラベル除外リスト。
+    autoSkipLabels: text(
+      process.env.CLOUD_AUTO_SKIP_LABELS,
+      'wontfix,duplicate,question,discussion,invalid,stale',
+    )
+      .split(',')
+      .map((label) => label.trim().toLowerCase())
+      .filter(Boolean),
     maxConcurrent: Math.max(1, Math.floor(numberValue(process.env.CLOUD_MAX_CONCURRENT, 1))),
     machine: text(process.env.CLOUD_CODESPACE_MACHINE, DEFAULT_MACHINE),
     devcontainerPath: text(process.env.CLOUD_DEVCONTAINER_PATH, DEFAULT_DEVCONTAINER),
@@ -41,6 +52,11 @@ export function getCloudConfig() {
     idleMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_CODESPACE_IDLE_MINUTES, 60))),
     retentionMinutes: Math.max(0, Math.floor(numberValue(process.env.CLOUD_CODESPACE_RETENTION_MINUTES, 60))),
     runnerIdleMinutes: Math.max(1, Math.floor(numberValue(process.env.CLOUD_RUNNER_IDLE_MINUTES, 15))),
+    // Codespace 作成後、ランナーが一度もジョブを取得しないまま経過したら
+    // 「起動失敗」として停止する。放置すると次の tick でまた作成され続ける。
+    runnerStartTimeoutMinutes: Math.max(3, Math.floor(numberValue(process.env.CLOUD_RUNNER_START_TIMEOUT_MINUTES, 15))),
+    // 直近1時間に起動失敗が続いた場合は Codespace の新規作成を止める。
+    maxStartFailuresPerHour: Math.max(1, Math.floor(numberValue(process.env.CLOUD_MAX_START_FAILURES_PER_HOUR, 2))),
     keepReviewCodespace: boolValue(process.env.CLOUD_KEEP_REVIEW_CODESPACE, false),
     jobMaxMinutes: Math.max(5, Math.floor(numberValue(process.env.CLOUD_JOB_MAX_MINUTES, 30))),
     jobStallMinutes: Math.max(2, Math.floor(numberValue(process.env.CLOUD_JOB_STALL_MINUTES, 8))),

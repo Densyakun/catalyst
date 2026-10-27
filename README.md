@@ -120,3 +120,7 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
 - 停止を早めたい場合は `CLOUD_RUNNER_IDLE_MINUTES` を短くしてください。ただしチェック間隔との関係で新しい Codespace が増える場合があります。
 - 安全確認待ちの環境を管理者確認用に残す場合は `CLOUD_KEEP_REVIEW_CODESPACE=true` にします（既定 `false`。既定では残さず、キューが空になった後のアイドル時間で停止します）。
 - アプリ課題の実行前には、前のジョブの変更を破棄して既定ブランチへ戻します（ジョブ間の混入防止）。
+- 同じ Issue の自動実行は直近7日で `CLOUD_AUTO_MAX_ATTEMPTS`（既定2回）までです。上限に達した Issue は `blocked` になり、Codespace を起動しません。内容を確認して再実行する場合は、該当ジョブを承認するか `cloud_jobs` の該当行を整理してください。
+- `CLOUD_AUTO_SKIP_LABELS`（既定 `wontfix,duplicate,question,discussion,invalid,stale`）に含まれるラベルの Issue は自動実装の対象外です。
+- Codespace 作成後 `CLOUD_RUNNER_START_TIMEOUT_MINUTES`（既定15分）以内にランナーが接続しない場合は起動失敗として停止します。直近1時間の起動失敗が `CLOUD_MAX_START_FAILURES_PER_HOUR`（既定2回）に達すると、原因を修正するまで新規 Codespace の作成を止めます。
+- アプリ課題が変更なし・型エラーなどで終了した場合は、管理者が保持を指定していない限り Codespace を即停止します（idle のまま残して次の課題で起動し続けるのを防ぐため）。
