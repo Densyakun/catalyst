@@ -4,8 +4,12 @@ import { calculateCloudCredits, chargePoolUpTo, chargeUserUpTo } from './credits
 import { getCloudConfig } from './config';
 import {
   createCodespace,
+  getCodespace,
   getRepo,
+  listDevcontainerPaths,
   listOpenIssues,
+  listRepoCodespaceSecrets,
+  listUserCodespaceSecrets,
   stopCodespace,
   type GitHubIssue,
 } from './github';
@@ -151,6 +155,134 @@ export function buildUserTaskPrompt(title: string, prompt: string): string {
     '',
     '最後に、実行したことと成果を簡潔にまとめてください。',
   ].join('\n');
+}
+
+/** ランナーが Codespace 内で起動するために必要な Codespaces シークレット。 */
+const RUNNER_REQUIRED_SECRETS = [
+  'CATALYST_APP_URL',
+  'CATALYST_CLOUD_RUNNER_TOKEN',
+  'OPENCODE_GO_API_KEY',
+] as const;
+
+export interface RunnerReadiness {
+  checked_at: string;
+  /** ユーザー単位の Codespaces シークレット名（取得できなければ null） */
+  user_secrets: string[] | null;
+  user_secrets_error: number | null;
+  /** リポジトリ単位の Codespaces シークレット名（取得できなければ null） */
+  repo_secrets: string[] | null;
+  repo_secrets_error: number | null;
+  devcontainers: string[] | null;
+  missing: string[];
+  /** シークレット名を取得できたか。取得できない場合は「不明」として起動を許可する。 */
+  verified: boolean;
+}
+
+let readinessCache: { at: number; value: RunnerReadiness } | null = null;
+const READINESS_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * ランナー起動に必要な設定が GitHub 側に揃っているかを確認する。
+ *
+ * これが欠けていると Codespace は起動するがランナーが一度も接続せず、
+ * 「作業環境が起動しなかった」としか分からない失敗になる。
+ * 原因を特定できるよう、確認結果をジョブに残す。
+ */
+export async function inspectRunnerReadiness(
+  config: ReturnType<typeof getCloudConfig>,
+  force = false,
+): Promise<RunnerReadiness> {
+  if (!force && readinessCache && Date.now() - readinessCache.at < READINESS_TTL_MS) {
+    return readinessCache.value;
+  }
+
+  const token = config.githubToken;
+  const [userResult, repoResult, devcontainers] = await Promise.all([
+    listUserCodespaceSecrets(token).catch(() => ({ names: null, error: null })),
+    config.repo
+      ? listRepoCodespaceSecrets(token, config.repo).catch(() => ({ names: null, error: null }))
+      : Promise.resolve({ names: null, error: null }),
+    config.repo
+      ? listDevcontainerPaths(token, config.repo).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const available = new Set<string>([
+    ...(userResult.names || []),
+    ...(repoResult.names || []),
+  ]);
+  // 片方の一覧しか読めない場合は「別のスコープに設定されているだけ」の可能性があるため、
+  // 欠落と断定しない（誤って起動を止めない）。
+  const verified = userResult.names !== null && repoResult.names !== null;
+  const missing = verified
+    ? RUNNER_REQUIRED_SECRETS.filter((name) => !available.has(name))
+    : [];
+
+  const value: RunnerReadiness = {
+    checked_at: new Date().toISOString(),
+    user_secrets: userResult.names,
+    user_secrets_error: userResult.error,
+    repo_secrets: repoResult.names,
+    repo_secrets_error: repoResult.error,
+    devcontainers,
+    missing,
+    verified,
+  };
+  readinessCache = { at: Date.now(), value };
+  return value;
+}
+
+/**
+ * ランナー起動設定の診断結果を、直近のアプリ課題ジョブに記録する。
+ * 起動失敗時に「何が足りないか」を管理画面・DB から確認できるようにする。
+ */
+export async function recordRunnerReadiness(): Promise<void> {
+  const config = getCloudConfig();
+  if (!config.githubToken || !config.repo) return;
+
+  const readiness = await inspectRunnerReadiness(config).catch(() => null);
+  if (!readiness) return;
+  console.log('Cloud runner readiness:', JSON.stringify(readiness));
+
+  const admin = createAdminClient();
+  const { data: latest } = await admin
+    .from('cloud_jobs')
+    .select('id, metadata')
+    .eq('kind', 'app_issue')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!latest) return;
+
+  const metadata = (latest.metadata as Record<string, unknown> | null) || {};
+  await admin
+    .from('cloud_jobs')
+    .update({ metadata: { ...metadata, runner_readiness: readiness } })
+    .eq('id', String(latest.id));
+}
+
+async function saveRunnerReadiness(
+  rows: Row[],
+  readiness: RunnerReadiness,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const admin = createAdminClient();
+  for (const row of rows.slice(0, 5)) {
+    const metadata = (row.metadata as Record<string, unknown> | null) || {};
+    const patch: Row = {
+      metadata: { ...metadata, runner_readiness: readiness },
+    };
+    if (readiness.missing.length) {
+      patch.error = `作業環境の起動設定が不足しています（${readiness.missing.join(', ')}）。管理者が Codespaces シークレットを設定すると自動で再開します。`;
+    } else {
+      patch.error = null;
+    }
+    await admin
+      .from('cloud_jobs')
+      .update(patch)
+      .eq('id', String(row.id))
+      .eq('status', 'queued');
+  }
 }
 
 async function insertJob(row: Row): Promise<Row | null> {
@@ -320,12 +452,22 @@ export async function startQueuedJobs(): Promise<number> {
 
   const { data: queuedJobs } = await admin
     .from('cloud_jobs')
-    .select('id')
+    .select('id, metadata')
     .eq('status', 'queued')
     .order('priority', { ascending: false })
     .order('created_at', { ascending: true })
     .limit(Math.min(slots, 10));
   if (!queuedJobs || queuedJobs.length === 0) return 0;
+
+  const readiness = await inspectRunnerReadiness(config);
+  await saveRunnerReadiness(queuedJobs as Row[], readiness);
+  if (readiness.verified && readiness.missing.length > 0) {
+    // Codespace を作ってもランナーが接続できないため、無駄な起動をしない。
+    console.error(
+      `Cloud runner cannot start: missing Codespaces secrets (${readiness.missing.join(', ')})`,
+    );
+    return 0;
+  }
 
   const repo = await getRepo(config.githubToken, config.repo);
   const toCreate = Math.min(slots, queuedJobs.length);
@@ -345,6 +487,16 @@ export async function startQueuedJobs(): Promise<number> {
         displayName: `katalyst-session-${Date.now().toString(36)}`,
       });
       codespaceName = codespace.name;
+
+      // ランナー未接続の原因が「ビルド失敗」か「起動後の設定不足」かを
+      // 切り分けられるよう、作成直後の状態を残しておく。
+      let codespaceState = codespace.state;
+      try {
+        const info = await getCodespace(config.githubToken, codespace.name);
+        if (info?.state) codespaceState = info.state;
+      } catch (stateError) {
+        console.error('Fetching codespace state failed:', stateError);
+      }
 
       const { error } = await admin.from('cloud_sessions').insert({
         codespace_name: codespace.name,
@@ -412,6 +564,18 @@ export async function startQueuedJobs(): Promise<number> {
       }
 
       started += 1;
+
+      await admin
+        .from('cloud_jobs')
+        .update({
+          metadata: {
+            ...((job.metadata as Record<string, unknown> | null) || {}),
+            runner_readiness: readiness,
+            codespace_state: codespaceState,
+            codespace_state_at: now,
+          },
+        })
+        .eq('id', String(job.id));
     } catch (error) {
       console.error('Creating cloud session failed:', error);
       if (codespaceName) {
@@ -486,11 +650,31 @@ export async function sweepStaleJobs(): Promise<number> {
     const runtimeSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
     const metadata = (job.metadata as Record<string, unknown> | null) || {};
     const savedUsage = (metadata.usage as Record<string, unknown> | undefined) || {};
+    // ランナーが一度もジョブを取得していない場合（provisioning のまま）は、
+    // 実行タイムアウトではなく「作業環境が起動しなかった」として扱う。
+    const neverClaimed = String(job.status) === 'provisioning';
+    let codespaceInfo = null;
+    if (neverClaimed && job.codespace_name) {
+      codespaceInfo = await getCodespace(
+        config.githubToken,
+        String(job.codespace_name),
+      ).catch(() => null);
+    }
     await finalizeCloudJob({
       jobId: String(job.id),
-      status: 'timed_out',
-      summary: '実行時間の上限を超えたため終了しました。',
-      error: 'timeout',
+      status: neverClaimed ? 'failed' : 'timed_out',
+      summary: neverClaimed
+        ? '作業環境が起動しなかったため停止しました。'
+        : '実行時間の上限を超えたため終了しました。',
+      detail: neverClaimed
+        ? [
+            `codespace_state: ${codespaceInfo?.state || 'unknown'}`,
+            `codespace_last_used_at: ${codespaceInfo?.lastUsedAt || '-'}`,
+            `devcontainer_path: ${codespaceInfo?.devcontainerPath || '-'}`,
+            `started_at: ${job.started_at || '-'}`,
+          ].join('\n')
+        : undefined,
+      error: neverClaimed ? 'runner_start_timeout' : 'timeout',
       usage: {
         runtimeSeconds,
         inputTokens: num(savedUsage.input_tokens ?? job.input_tokens),
@@ -525,6 +709,16 @@ export async function sweepStaleJobs(): Promise<number> {
   for (const session of (neverStartedSessions || []) as Row[]) {
     const codespaceName = String(session.codespace_name || '');
     const nowIso = new Date(now).toISOString();
+    const codespaceInfo = codespaceName
+      ? await getCodespace(config.githubToken, codespaceName).catch(() => null)
+      : null;
+    const diagnostics = [
+      `codespace_state: ${codespaceInfo?.state || 'unknown'}`,
+      `codespace_last_used_at: ${codespaceInfo?.lastUsedAt || '-'}`,
+      `devcontainer_path: ${codespaceInfo?.devcontainerPath || '-'}`,
+      `machine: ${codespaceInfo?.machine || '-'}`,
+      `runner_seen_at: ${session.runner_seen_at || '-'}`,
+    ].join('\n');
     const { data: assignedJobs } = codespaceName
       ? await admin
           .from('cloud_jobs')
@@ -539,6 +733,7 @@ export async function sweepStaleJobs(): Promise<number> {
         jobId: String(job.id),
         status: 'failed',
         summary: '作業環境が起動しなかったため停止しました。',
+        detail: diagnostics,
         error: 'runner_start_timeout',
         usage: {
           runtimeSeconds: Math.max(0, Math.floor((now - startedAt) / 1000)),
@@ -1236,6 +1431,12 @@ export async function runCloudTick(): Promise<Record<string, number | string[]>>
     stopped = await sweepStaleJobs();
   } catch (error) {
     errors.push(`sweep: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    await recordRunnerReadiness();
+  } catch (error) {
+    errors.push(`readiness: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   try {
