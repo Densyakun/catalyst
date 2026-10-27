@@ -62,6 +62,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   const [submitting, setSubmitting] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
@@ -126,6 +127,23 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setCancelling(null);
+    }
+  };
+
+  const retry = async (job: CloudJob) => {
+    if (retrying) return;
+    setRetrying(job.id);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/cloud/jobs/${job.id}/retry`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || '再実行できませんでした');
+      setMessage('再実行を受け付けました。順番に実行します。');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRetrying(null);
     }
   };
 
@@ -299,8 +317,10 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
                 isAdmin={data.is_admin}
                 cancelling={cancelling === job.id}
                 deciding={deciding === job.id}
+                retrying={retrying === job.id}
                 onCancel={() => void cancel(job)}
                 onDecide={(action) => void decide(job, action)}
+                onRetry={() => void retry(job)}
               />
             ))}
           </div>
@@ -315,18 +335,23 @@ function JobRow({
   isAdmin,
   cancelling,
   deciding,
+  retrying,
   onCancel,
   onDecide,
+  onRetry,
 }: {
   job: CloudJob;
   isAdmin: boolean;
   cancelling: boolean;
   deciding: boolean;
+  retrying: boolean;
   onCancel: () => void;
   onDecide: (action: 'approve' | 'reject') => void;
+  onRetry: () => void;
 }) {
   const meta = STATUS_META[job.status] ?? STATUS_META.failed;
   const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
+  const canRetry = ['failed', 'cancelled', 'timed_out'].includes(job.status);
   const canReview = isAdmin && job.status === 'blocked' && job.blocked_stage === 'precheck';
   const showCodespace = isAdmin
     && Boolean(job.codespace_url)
@@ -376,6 +401,18 @@ function JobRow({
             style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.65rem', padding: 0, cursor: 'pointer' }}
           >
             {cancelling ? '停止中...' : 'キャンセル'}
+          </button>
+        )}
+        {canRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            title="もう一度実行します"
+            style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
+          >
+            <RefreshCw size={11} className={retrying ? 'animate-spin' : undefined} />
+            {retrying ? '受付中...' : '再実行'}
           </button>
         )}
       </div>

@@ -1101,6 +1101,131 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
   return (updated as Row | null) ?? job;
 }
 
+/** 時間切れ・失敗・キャンセルで終わったジョブを再実行できる。 */
+export const CLOUD_JOB_RETRYABLE_STATUSES = ['failed', 'cancelled', 'timed_out'] as const;
+
+export function isCloudJobRetryable(status: string): boolean {
+  return (CLOUD_JOB_RETRYABLE_STATUSES as readonly string[]).includes(status);
+}
+
+export type RequeueCloudJobResult =
+  | { ok: true; job: Row }
+  | { ok: false; reason: 'not_found' | 'not_retryable' | 'duplicate' };
+
+/**
+ * 終了済みのジョブを待機状態に戻し、もう一度実行できるようにする。
+ * Codespace は停止済みで途中成果は残らないため、同じ依頼内容を最初から実行し直す。
+ * 前回の結果と使用量は metadata.previous_attempts に退避し、今回分の課金と混ざらないようにする。
+ */
+export async function requeueCloudJob(jobId: string, actorId?: string | null): Promise<RequeueCloudJobResult> {
+  const admin = createAdminClient();
+  const { data: current } = await admin
+    .from('cloud_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .maybeSingle();
+  if (!current) return { ok: false, reason: 'not_found' };
+
+  const job = current as Row;
+  if (!isCloudJobRetryable(String(job.status))) {
+    return { ok: false, reason: 'not_retryable' };
+  }
+
+  // 同じ課題のジョブがすでに実行待ち・実行中・完了済みの場合は、
+  // 重複実行防止インデックスと衝突するため再実行しない。
+  const dedupeKey = job.dedupe_key ? String(job.dedupe_key) : '';
+  if (dedupeKey) {
+    const { data: blocker } = await admin
+      .from('cloud_jobs')
+      .select('id')
+      .eq('dedupe_key', dedupeKey)
+      .neq('id', jobId)
+      .in('status', ['queued', 'provisioning', 'running', 'succeeded', 'blocked', 'cancelled'])
+      .limit(1)
+      .maybeSingle();
+    if (blocker) return { ok: false, reason: 'duplicate' };
+  }
+
+  const metadata = (job.metadata as Record<string, unknown> | null) || {};
+  const previousAttempts = Array.isArray(metadata.previous_attempts)
+    ? metadata.previous_attempts.slice(-4)
+    : [];
+  const previousAttempt = {
+    status: String(job.status),
+    error: job.error ? String(job.error) : null,
+    result_summary: job.result_summary ? String(job.result_summary) : null,
+    runtime_seconds: num(job.runtime_seconds),
+    input_tokens: num(job.input_tokens),
+    output_tokens: num(job.output_tokens),
+    cost_usd: num(job.cost_usd),
+    credits_charged: num(job.credits_charged),
+    finished_at: job.finished_at ? String(job.finished_at) : null,
+  };
+
+  const nextMetadata: Record<string, unknown> = { ...metadata };
+  delete nextMetadata.blocked_stage;
+  delete nextMetadata.stage;
+  delete nextMetadata.usage;
+  delete nextMetadata.technical_error;
+  delete nextMetadata.detail;
+
+  const rerunCount = Math.max(0, num(metadata.rerun_count)) + 1;
+  const now = new Date().toISOString();
+  // 同じブランチを使い回すと前回の変更と衝突するため、アプリ改善は新しいブランチにする。
+  const branch = job.kind === 'app_issue' && job.issue_number != null
+    ? `katalyst/issue-${num(job.issue_number)}-${Date.now().toString(36)}`
+    : (job.branch ? String(job.branch) : null);
+
+  const payload = {
+    status: 'queued',
+    error: null,
+    result_summary: null,
+    pr_url: null,
+    branch,
+    codespace_name: null,
+    codespace_url: null,
+    started_at: null,
+    heartbeat_at: null,
+    finished_at: null,
+    credits_charged: 0,
+    payment_status: 'pending',
+    runtime_seconds: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cost_usd: 0,
+    metadata: {
+      ...nextMetadata,
+      stage: 'queued',
+      rerun_count: rerunCount,
+      rerun_at: now,
+      ...(actorId ? { rerun_by: actorId } : {}),
+      previous_attempts: [...previousAttempts, previousAttempt].slice(-5),
+    },
+  };
+
+  const run = (body: Record<string, unknown>) =>
+    admin
+      .from('cloud_jobs')
+      .update(body)
+      .eq('id', jobId)
+      .in('status', [...CLOUD_JOB_RETRYABLE_STATUSES])
+      .select()
+      .maybeSingle();
+
+  let { data: updated, error } = await run({ ...payload, result_detail: null });
+  if (error) {
+    // result_detail 列が未作成の環境でも再実行できるようにする
+    console.error('Requeue cloud job with detail failed, retrying without it:', error);
+    ({ data: updated, error } = await run(payload));
+  }
+  if (error) {
+    if (error.code === '23505') return { ok: false, reason: 'duplicate' };
+    throw error;
+  }
+  if (!updated) return { ok: false, reason: 'not_retryable' };
+  return { ok: true, job: updated as Row };
+}
+
 export async function runCloudTick(): Promise<Record<string, number | string[]>> {
   const errors: string[] = [];
   let stopped = 0;
