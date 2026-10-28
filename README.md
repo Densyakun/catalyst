@@ -81,15 +81,17 @@ OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 Cloudflare Workers 上では10分おきの Cron を直接持てないため、`workers/cloud-scheduler` を別 Worker としてデプロイします。
 
 1. アプリ側の環境変数（Cloudflare の Variables and Secrets）を設定する
-   - `GITHUB_CODESPACES_TOKEN`（Codespaces の作成権限）
+   - `GITHUB_CODESPACES_TOKEN`（リポジトリ操作用。`repo` スコープ。Codespaces も使う場合は `codespace` も付与）
    - `CLOUD_GITHUB_REPO`（`owner/repo`）
    - `CLOUD_CRON_SECRET` / `CLOUD_RUNNER_TOKEN`
    - `OPENCODE_MODEL`（例: `opencode-go/deepseek-v4.1-flash`）
    - 必要に応じて `ADMIN_EMAILS` / `ADMIN_USER_IDS`
-2. GitHub の Repository Settings → Codespaces → Secrets に以下を登録する
+2. GitHub の Repository Settings → Actions → General で
+   「Allow GitHub Actions to create and approve pull requests」を有効にする
+3. Codespace で実行する場合のみ、Repository Settings → Codespaces → Secrets に以下を登録する
    - `CATALYST_APP_URL` / `CATALYST_CLOUD_RUNNER_TOKEN`
    - `OPENCODE_GO_API_KEY` / `OPENCODE_MODEL`
-3. スケジューラ Worker をデプロイする
+4. スケジューラ Worker をデプロイする
    ```bash
    cd workers/cloud-scheduler
    npx wrangler secret put CLOUD_APP_URL
@@ -99,6 +101,12 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
    ```
 
 10分おきに `/api/cloud/cron` が実行され、アプリの GitHub Issue（`CLOUD_AUTO_ISSUE_LABEL` で絞り込み可能）がクラウド作業環境で解決されます。ユーザーは「クラウド」タブから任意の作業を依頼できます。実行時間とトークン使用量からクレジットが計算されます。
+
+### 実行基盤（GitHub Actions / Codespaces）
+- 既定（`CLOUD_EXECUTION_BACKEND=actions`）は **GitHub Actions** で実行します。パブリックリポジトリは実行時間が無料のため、Codespaces の予算上限に達していても作業を継続できます。
+- アプリが `.github/workflows/cloud-job.yml` を `repository_dispatch` で起動し、リポジトリ変数 `KATALYST_APP_URL` を自動登録します。ランナーの認証情報と LLM 設定は、実行開始後にワークフロー実行IDを照合して `/api/cloud/agent/bootstrap` から渡します（リポジトリに保存しません）。
+- `CLOUD_EXECUTION_BACKEND=auto` にすると Actions を優先し、開始できなかった場合だけ Codespace にフォールバックします。`codespaces` で従来動作になります。
+- Codespace 作成が予算超過（HTTP 402）で拒否された場合は、理由をジョブに記録して無駄な起動を止めます。
 
 ### AI脅威対策
 - Issue 本文・コメント・リポジトリ内の文章は「信頼できないデータ」として扱い、プロンプト内で明確に区切ります。
