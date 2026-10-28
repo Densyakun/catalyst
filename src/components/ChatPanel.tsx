@@ -57,6 +57,8 @@ export default function ChatPanel({
     resources: { name: string; type: string; description: string }[];
     info: string[];
   } | null>(null);
+  const [extractedProblemIds, setExtractedProblemIds] = useState<(string | null)[]>([]);
+  const [extractedResourceIds, setExtractedResourceIds] = useState<(string | null)[]>([]);
   const [reinvestigateResult, setReinvestigateResult] = useState<string | null>(null);
   const [sourceActionResult, setSourceActionResult] = useState<string | null>(null);
   const [captureResult, setCaptureResult] = useState<{ type: string; ideaSaved: boolean; feedbackSaved: boolean } | null>(null);
@@ -95,6 +97,8 @@ export default function ChatPanel({
     setMessages(conv.messages || []);
     setShowHistory(false);
     setExtractedSummary(null);
+    setExtractedProblemIds([]);
+    setExtractedResourceIds([]);
     setCaptureResult(null);
   };
 
@@ -102,7 +106,47 @@ export default function ChatPanel({
     setActiveConvId(null);
     setMessages([]);
     setExtractedSummary(null);
+    setExtractedProblemIds([]);
+    setExtractedResourceIds([]);
     setCaptureResult(null);
+  };
+
+  const removeExtractedProblem = async (index: number) => {
+    const id = extractedProblemIds[index];
+    if (id) {
+      try {
+        await fetch('/api/insights', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        });
+      } catch (err) {
+        console.error('Delete extracted problem error:', err);
+      }
+    }
+    setExtractedSummary((prev) =>
+      prev ? { ...prev, problems: prev.problems.filter((_, i) => i !== index) } : prev,
+    );
+    setExtractedProblemIds((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeExtractedResource = async (index: number) => {
+    const id = extractedResourceIds[index];
+    if (id) {
+      try {
+        await fetch('/api/resources', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        });
+      } catch (err) {
+        console.error('Delete extracted resource error:', err);
+      }
+    }
+    setExtractedSummary((prev) =>
+      prev ? { ...prev, resources: prev.resources.filter((_, i) => i !== index) } : prev,
+    );
+    setExtractedResourceIds((prev) => prev.filter((_, i) => i !== index));
   };
 
   const sendMessage = async () => {
@@ -149,6 +193,8 @@ export default function ChatPanel({
         setActiveConvId(data.conversation_id);
         setMessages((prev) => [...prev, data.reply]);
         setExtractedSummary(data.extracted_items);
+        setExtractedProblemIds(data.extracted_problem_ids || []);
+        setExtractedResourceIds(data.extracted_resource_ids || []);
         setCaptureResult({
           type: data.capture_type || 'question',
           ideaSaved: Boolean(data.idea_saved),
@@ -435,6 +481,13 @@ export default function ChatPanel({
               color: '#ef4444',
             }}>
               <AlertCircle size={10} /> {p.description}
+              <button
+                onClick={() => removeExtractedProblem(i)}
+                title="この抽出結果を削除"
+                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                <X size={9} />
+              </button>
             </span>
           ))}
           {extractedSummary.resources.map((r, i) => (
@@ -448,6 +501,13 @@ export default function ChatPanel({
               color: '#3b82f6',
             }}>
               <Package size={10} /> {r.name}
+              <button
+                onClick={() => removeExtractedResource(i)}
+                title="この抽出結果を削除"
+                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                <X size={9} />
+              </button>
             </span>
           ))}
           {extractedSummary.info.map((info, i) => (

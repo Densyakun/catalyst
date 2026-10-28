@@ -152,31 +152,45 @@ export async function POST(req: NextRequest) {
     }
 
     // 抽出された課題を保存（フィードバック・アイデアは課題化しない）
+    const extractedProblemIds: (string | null)[] = analysis.extracted_items.problems.map(() => null);
     if (captureType !== 'feedback' && captureType !== 'idea') {
-      for (const problem of analysis.extracted_items.problems) {
-        await supabase.from('auto_insights').insert({
-          user_id: user.id,
-          insight_type: 'detected_problem',
-          title: problem.description,
-          content: `カテゴリ: ${problem.category}\n緊急度: ${problem.urgency}\n\nチャットから検出`,
-          estimated_cost: { time: '未推定', money: 0 },
-          auto_proceed: false,
-          status: 'pending',
-        });
+      for (let i = 0; i < analysis.extracted_items.problems.length; i++) {
+        const problem = analysis.extracted_items.problems[i];
+        const { data: savedProblem } = await supabase
+          .from('auto_insights')
+          .insert({
+            user_id: user.id,
+            insight_type: 'detected_problem',
+            title: problem.description,
+            content: `カテゴリ: ${problem.category}\n緊急度: ${problem.urgency}\n\nチャットから検出`,
+            estimated_cost: { time: '未推定', money: 0 },
+            auto_proceed: false,
+            status: 'pending',
+          })
+          .select('id')
+          .single();
+        extractedProblemIds[i] = savedProblem?.id ?? null;
       }
     }
 
     // 抽出されたリソースを保存
-    for (const resource of analysis.extracted_items.resources) {
+    const extractedResourceIds: (string | null)[] = analysis.extracted_items.resources.map(() => null);
+    for (let i = 0; i < analysis.extracted_items.resources.length; i++) {
+      const resource = analysis.extracted_items.resources[i];
       const validTypes = ['time', 'money', 'skill', 'tool', 'connection'];
       const resourceType = validTypes.includes(resource.type) ? resource.type : 'tool';
 
-      await supabase.from('user_resources').insert({
-        user_id: user.id,
-        resource_type: resourceType,
-        name: resource.name,
-        description: resource.description,
-      });
+      const { data: savedResource } = await supabase
+        .from('user_resources')
+        .insert({
+          user_id: user.id,
+          resource_type: resourceType,
+          name: resource.name,
+          description: resource.description,
+        })
+        .select('id')
+        .single();
+      extractedResourceIds[i] = savedResource?.id ?? null;
     }
 
     // 会話を保存
@@ -402,6 +416,8 @@ ${sourceContext}
       feedback_saved: feedbackSaved,
       idea_saved: ideaSaved,
       extracted_items: analysis.extracted_items,
+      extracted_problem_ids: extractedProblemIds,
+      extracted_resource_ids: extractedResourceIds,
       insight_updated: insightUpdated,
       reinvestigate_result: reinvestigateResult,
       source_action_result: sourceActionResult,
