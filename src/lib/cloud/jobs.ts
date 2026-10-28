@@ -312,6 +312,7 @@ export function isActionsRunner(name: string | null | undefined): boolean {
 const ACTIONS_WORKFLOW_FILE = '.github/workflows/cloud-job.yml';
 const ACTIONS_CONFIG_TTL_MS = 30 * 60 * 1000;
 let actionsConfigReadyAt = 0;
+let actionsConfigValue = '';
 let actionsWorkflowCheckedAt = 0;
 let actionsWorkflowReady = false;
 
@@ -343,13 +344,21 @@ async function ensureActionsWorkflowExists(
  */
 async function ensureActionsConfig(
   config: ReturnType<typeof getCloudConfig>,
+  appUrl: string,
 ): Promise<void> {
-  if (Date.now() - actionsConfigReadyAt < ACTIONS_CONFIG_TTL_MS) return;
-  if (!isUsableValue(config.appUrl)) {
-    throw new Error('NEXT_PUBLIC_APP_URL が設定されていません');
+  const value = appUrl.replace(/\/+$/, '');
+  if (
+    value === actionsConfigValue
+    && Date.now() - actionsConfigReadyAt < ACTIONS_CONFIG_TTL_MS
+  ) {
+    return;
   }
-  await putRepoActionVariable(config.githubToken, config.repo, 'KATALYST_APP_URL', config.appUrl);
+  if (!isUsableValue(value)) {
+    throw new Error('アプリのURLが設定されていません');
+  }
+  await putRepoActionVariable(config.githubToken, config.repo, 'KATALYST_APP_URL', value);
   actionsConfigReadyAt = Date.now();
+  actionsConfigValue = value;
 }
 
 /** Actions 実行に必要な設定が揃っているかを確認する（診断用）。 */
@@ -377,6 +386,7 @@ export interface ActionsDispatchResult {
 async function dispatchActionsJob(
   config: ReturnType<typeof getCloudConfig>,
   job: Row,
+  appUrl: string,
 ): Promise<ActionsDispatchResult> {
   const admin = createAdminClient();
   const now = new Date().toISOString();
@@ -388,7 +398,7 @@ async function dispatchActionsJob(
       error: `GitHub Actions のワークフロー（${ACTIONS_WORKFLOW_FILE}）が見つかりません。`,
     };
   }
-  await ensureActionsConfig(config);
+  await ensureActionsConfig(config, appUrl);
 
   const runnerId = `actions-${String(job.id).slice(0, 8)}-${Date.now().toString(36)}${Math.random()
     .toString(36)
@@ -597,9 +607,26 @@ export async function enqueueAppIssues(): Promise<number> {
   return created;
 }
 
-export async function startQueuedJobs(): Promise<number> {
+function normalizeRunnerAppUrl(value: string | undefined): string {
+  const trimmed = (value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    if (['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) return '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+export async function startQueuedJobs(appUrl?: string): Promise<number> {
   const config = getCloudConfig();
   if (!config.githubToken || !config.repo) return 0;
+
+  // リクエスト元のURLを優先する。Worker の NEXT_PUBLIC_APP_URL が
+  // localhost のままでも、外部から到達できるURLで Actions を起動できる。
+  const runnerAppUrl = normalizeRunnerAppUrl(appUrl) || normalizeRunnerAppUrl(config.appUrl);
 
   const admin = createAdminClient();
   const { data: activeSessions } = await admin
@@ -628,7 +655,7 @@ export async function startQueuedJobs(): Promise<number> {
 
   if (actionsAvailable) {
     for (const job of queuedJobs.slice(0, toCreate)) {
-      const result = await dispatchActionsJob(config, job as Row).catch((error) => ({
+      const result = await dispatchActionsJob(config, job as Row, runnerAppUrl).catch((error) => ({
         ok: false,
         runnerId: null,
         error: error instanceof Error ? error.message : String(error),
@@ -1825,7 +1852,7 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
   return { ok: true, job: updated as Row };
 }
 
-export async function runCloudTick(): Promise<Record<string, number | string[]>> {
+export async function runCloudTick(appUrl?: string): Promise<Record<string, number | string[]>> {
   const errors: string[] = [];
   let stopped = 0;
   let enqueued = 0;
@@ -1850,7 +1877,7 @@ export async function runCloudTick(): Promise<Record<string, number | string[]>>
   }
 
   try {
-    started = await startQueuedJobs();
+    started = await startQueuedJobs(appUrl);
   } catch (error) {
     errors.push(`start: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -24,7 +24,7 @@ async function tick(req: NextRequest) {
   }
 
   try {
-    const result = await runCloudTick();
+    const result = await runCloudTick(req.nextUrl.origin);
     return NextResponse.json({ ok: true, ...result });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
