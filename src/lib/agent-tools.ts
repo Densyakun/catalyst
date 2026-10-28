@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isValuableNotification, normalizeNotificationLink } from '@/lib/notifications';
 import type {
   AgentContextProposal,
   AgentContextResponse,
@@ -193,6 +194,8 @@ async function insertNotificationOnce(
     linkUrl?: string | null;
   },
 ) {
+  if (!isValuableNotification(params)) return;
+
   const { data: existing } = await supabase
     .from('user_notifications')
     .select('id')
@@ -212,7 +215,7 @@ async function insertNotificationOnce(
   const { error } = await supabase.from('user_notifications').insert({
     ...base,
     detail: params.detail ?? null,
-    link_url: params.linkUrl ?? null,
+    link_url: normalizeNotificationLink(params.linkUrl),
   });
 
   // 旧スキーマ（detail / link_url 未追加）でも通知自体は失わないようにする

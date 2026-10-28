@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-
-function normalizeUrl(url?: string | null): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
+import { isValuableNotification, normalizeNotificationLink } from '@/lib/notifications';
 
 /**
  * GET /api/notifications  → 自分の通知一覧（新しい順）
@@ -63,9 +54,18 @@ export async function GET() {
       return {
         ...n,
         detail: detail || null,
-        link_url: normalizeUrl(n.link_url) ?? normalizeUrl(proposal?.github_issue_url),
+        link_url:
+          normalizeNotificationLink(n.link_url) ??
+          normalizeNotificationLink(proposal?.github_issue_url),
       };
-    });
+    }).filter((n) =>
+      isValuableNotification({
+        title: n.title,
+        body: n.body,
+        detail: n.detail,
+        linkUrl: n.link_url,
+      }),
+    );
 
     return NextResponse.json(enriched);
   } catch (error: unknown) {
