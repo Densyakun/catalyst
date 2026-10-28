@@ -35,6 +35,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install opencode
+        run: npm install -g opencode-ai@1.19.4
+
       - name: Prepare sandbox user
         run: sudo useradd --create-home --shell /bin/bash agent || true
 
