@@ -4,9 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bell, CheckCheck, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
 import type { UserNotification } from '@/lib/types/evolution';
 
+function isSafeLink(url: string): boolean {
+  if (url.startsWith('/') && !url.startsWith('//') && !url.includes('\\')) return true;
+  return /^https?:\/\//i.test(url);
+}
+
 function linkLabel(url: string): string {
   if (/github\.com\/[^/]+\/[^/]+\/issues\/\d+/.test(url)) return 'GitHub Issue を開く';
   if (/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url)) return 'GitHub PR を開く';
+  if (url.startsWith('/')) return '該当画面を開く';
   return 'リンクを開く';
 }
 
@@ -97,7 +103,8 @@ export default function NotificationsBell() {
               {items.map((n) => {
                 const hasDetail = Boolean(n.detail && n.detail !== n.body);
                 const isExpanded = expandedId === n.id;
-                const linkUrl = n.link_url && /^https?:\/\//i.test(n.link_url) ? n.link_url : null;
+                const linkUrl = n.link_url && isSafeLink(n.link_url) ? n.link_url : null;
+                const isExternalLink = Boolean(linkUrl && /^https?:\/\//i.test(linkUrl));
                 return (
                   <div
                     key={n.id}
@@ -131,8 +138,8 @@ export default function NotificationsBell() {
                     {linkUrl && (
                       <a
                         href={linkUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                        target={isExternalLink ? '_blank' : undefined}
+                        rel={isExternalLink ? 'noreferrer' : undefined}
                         onClick={(e) => e.stopPropagation()}
                         style={{ fontSize: '0.65rem', color: 'var(--accent-color)', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.3rem' }}
                       >
