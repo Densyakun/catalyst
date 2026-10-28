@@ -46,6 +46,14 @@ export function getCloudConfig() {
       .map((label) => label.trim().toLowerCase())
       .filter(Boolean),
     maxConcurrent: Math.max(1, Math.floor(numberValue(process.env.CLOUD_MAX_CONCURRENT, 1))),
+    // 実行基盤。'actions' は GitHub Actions（パブリックリポジトリは無料）、
+    // 'codespaces' は従来の Codespace、'auto' は Actions を優先して失敗時のみ Codespace。
+    executionBackend: (() => {
+      const value = text(process.env.CLOUD_EXECUTION_BACKEND, 'actions').toLowerCase();
+      return value === 'codespaces' || value === 'auto' ? value : 'actions';
+    })(),
+    actionsEventType: text(process.env.CLOUD_ACTIONS_EVENT_TYPE, 'katalyst-cloud-job'),
+    actionsRunnerIdPrefix: 'actions-',
     machine: text(process.env.CLOUD_CODESPACE_MACHINE, DEFAULT_MACHINE),
     devcontainerPath: text(process.env.CLOUD_DEVCONTAINER_PATH, DEFAULT_DEVCONTAINER),
     ref: text(process.env.CLOUD_GITHUB_REF),

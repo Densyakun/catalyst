@@ -241,8 +241,148 @@ export async function listDevcontainerPaths(token: string, repo: string): Promis
   }
 }
 
-export async function stopCodespace(token: string, name: string): Promise<void> {
-  if (!name) return;
+export interface ActionVariable {
+  name: string;
+  value: string;
+}
+
+export async function listRepoActionVariables(
+  token: string,
+  repo: string,
+): Promise<ActionVariable[] | null> {
+  const parsed = parseRepo(repo);
+  if (!parsed) return null;
+  try {
+    const res = await githubFetch(
+      token,
+      `/repos/${parsed.owner}/${parsed.repo}/actions/variables?per_page=100`,
+    );
+    const data = await res.json();
+    return Array.isArray(data?.variables)
+      ? data.variables.map((item: { name?: unknown; value?: unknown }) => ({
+          name: String(item?.name || ''),
+          value: String(item?.value || ''),
+        }))
+      : [];
+  } catch (error) {
+    if (error instanceof GitHubError) return null;
+    throw error;
+  }
+}
+
+/**
+ * Actions のリポジトリ変数を作成・更新する。
+ * 変数は秘密情報ではないため暗号化不要（アプリのURLなどに使う）。
+ */
+export async function putRepoActionVariable(
+  token: string,
+  repo: string,
+  name: string,
+  value: string,
+): Promise<void> {
+  const parsed = parseRepo(repo);
+  if (!parsed) throw new Error('CLOUD_GITHUB_REPO は owner/repo 形式で指定してください');
+  const base = `/repos/${parsed.owner}/${parsed.repo}/actions/variables`;
+
+  try {
+    await githubFetch(token, `${base}/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, value }),
+    });
+  } catch (error) {
+    if (!(error instanceof GitHubError) || error.status !== 404) throw error;
+    await githubFetch(token, base, {
+      method: 'POST',
+      body: JSON.stringify({ name, value }),
+    });
+  }
+}
+
+/**
+ * リポジトリの Actions ワークフローを repository_dispatch で起動する。
+ */
+export async function dispatchRepoEvent(
+  token: string,
+  repo: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const parsed = parseRepo(repo);
+  if (!parsed) throw new Error('CLOUD_GITHUB_REPO は owner/repo 形式で指定してください');
+  await githubFetch(token, `/repos/${parsed.owner}/${parsed.repo}/dispatches`, {
+    method: 'POST',
+    body: JSON.stringify({ event_type: eventType, client_payload: payload }),
+  });
+}
+
+export interface RepoWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export async function listRepoWorkflows(token: string, repo: string): Promise<RepoWorkflow[] | null> {
+  const parsed = parseRepo(repo);
+  if (!parsed) return null;
+  try {
+    const res = await githubFetch(
+      token,
+      `/repos/${parsed.owner}/${parsed.repo}/actions/workflows?per_page=100`,
+    );
+    const data = await res.json();
+    return Array.isArray(data?.workflows)
+      ? data.workflows.map((item: Record<string, unknown>) => ({
+          id: Number(item.id),
+          name: String(item.name || ''),
+          path: String(item.path || ''),
+          state: String(item.state || ''),
+        }))
+      : [];
+  } catch (error) {
+    if (error instanceof GitHubError) return null;
+    throw error;
+  }
+}
+
+export interface WorkflowRunInfo {
+  id: number;
+  status: string;
+  event: string;
+  path: string;
+  headBranch: string;
+  createdAt: string | null;
+}
+
+export async function getWorkflowRun(
+  token: string,
+  repo: string,
+  runId: string,
+): Promise<WorkflowRunInfo | null> {
+  const parsed = parseRepo(repo);
+  if (!parsed) return null;
+  if (!/^\d+$/.test(runId)) return null;
+  try {
+    const res = await githubFetch(
+      token,
+      `/repos/${parsed.owner}/${parsed.repo}/actions/runs/${encodeURIComponent(runId)}`,
+    );
+    const data = await res.json();
+    return {
+      id: Number(data.id),
+      status: String(data.status || ''),
+      event: String(data.event || ''),
+      path: String(data.path || ''),
+      headBranch: String(data.head_branch || ''),
+      createdAt: data.created_at ? String(data.created_at) : null,
+    };
+  } catch (error) {
+    if (error instanceof GitHubError) return null;
+    throw error;
+  }
+}
+
+export async function stopCodespace(token: string, name: string): Promise<void> {  if (!name) return;
   try {
     await githubFetch(token, `/user/codespaces/${encodeURIComponent(name)}/stop`, {
       method: 'POST',

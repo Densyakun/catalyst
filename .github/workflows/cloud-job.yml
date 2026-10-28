@@ -1,0 +1,46 @@
+name: Katalyse cloud job
+
+# アプリの /api/cloud/cron から repository_dispatch で起動される。
+# パブリックリポジトリでは Actions の実行時間が無料のため、
+# GitHub Codespaces の予算上限に達していてもクラウド作業を継続できる。
+on:
+  repository_dispatch:
+    types: [katalyst-cloud-job]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: katalyst-cloud-${{ github.event.client_payload.runner_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CATALYST_APP_URL: ${{ vars.KATALYST_APP_URL }}
+      CATALYST_JOB_ID: ${{ github.event.client_payload.job_id }}
+      CATALYST_RUNNER_ID: ${{ github.event.client_payload.runner_id }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Prepare sandbox user
+        run: sudo useradd --create-home --shell /bin/bash agent || true
+
+      - name: Install dependencies
+        continue-on-error: true
+        run: npm ci --no-audit --no-fund
+
+      - name: Run cloud job
+        run: node scripts/cloud-runner.mjs

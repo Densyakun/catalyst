@@ -8,14 +8,57 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const APP_URL = (process.env.CATALYST_APP_URL || process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/+$/, '');
-const RUNNER_TOKEN = process.env.CATALYST_CLOUD_RUNNER_TOKEN || '';
+let RUNNER_TOKEN = process.env.CATALYST_CLOUD_RUNNER_TOKEN || '';
 const OPENCODE_KEY = process.env.OPENCODE_GO_API_KEY || '';
 const PROVIDER_ID = process.env.OPENCODE_PROVIDER_ID || 'opencode-go';
 const MODEL = process.env.OPENCODE_MODEL || 'opencode-go/deepseek-v4.1-flash';
 const CODESPACE_NAME = process.env.CODESPACE_NAME || '';
+// GitHub Actions 実行時は Codespace 名の代わりに一意なランナーIDを使う。
+const RUNNER_ID = process.env.CATALYST_RUNNER_ID || CODESPACE_NAME;
+const JOB_ID = process.env.CATALYST_JOB_ID || '';
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || '';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 const GITHUB_API_TOKEN = process.env.CATALYST_GITHUB_TOKEN || GITHUB_TOKEN;
+
+// Actions では OPENCODE_GO_API_KEY の代わりに、アプリと同じ LLM 設定を使える。
+// 値は起動時にアプリの bootstrap API から受け取る（リポジトリに保存しない）。
+let LLM_BASE_URL = (process.env.KATALYST_LLM_BASE_URL || '').replace(/\/+$/, '');
+let LLM_API_KEY = process.env.KATALYST_LLM_API_KEY || '';
+let LLM_MODEL = process.env.KATALYST_LLM_MODEL || '';
+let LLM_OPENCODE = process.env.KATALYST_LLM_OPENCODE === '1';
+const LLM_SESSION_ID = `ses_${crypto.randomUUID().replace(/-/g, '')}`;
+
+function useCustomLlm() {
+  return !OPENCODE_KEY && Boolean(LLM_BASE_URL && LLM_API_KEY && LLM_MODEL);
+}
+
+function customModelId() {
+  return `katalyst/${LLM_MODEL}`;
+}
+
+async function bootstrapRunner() {
+  const runId = process.env.GITHUB_RUN_ID || '';
+  const res = await fetch(`${APP_URL}/api/cloud/agent/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+    },
+    body: JSON.stringify({ job_id: JOB_ID, runner_id: RUNNER_ID, run_id: runId }),
+    signal: AbortSignal.timeout(20000),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.runner_token) {
+    throw new Error(`ランナー設定の取得に失敗しました: ${json.error || res.status}`);
+  }
+  RUNNER_TOKEN = String(json.runner_token);
+  if (json.llm) {
+    LLM_BASE_URL = String(json.llm.base_url || '').replace(/\/+$/, '');
+    LLM_API_KEY = String(json.llm.api_key || '');
+    LLM_MODEL = String(json.llm.model || '');
+    LLM_OPENCODE = json.llm.opencode === true;
+  }
+}
 
 const REPO_DIR = process.env.GITHUB_WORKSPACE
   || (GITHUB_REPOSITORY ? path.join('/workspaces', GITHUB_REPOSITORY.split('/')[1]) : process.cwd());
@@ -87,12 +130,16 @@ function minimalEnv(home) {
   };
 }
 
-if (!APP_URL || !RUNNER_TOKEN) {
-  console.error('CATALYST_APP_URL と CATALYST_CLOUD_RUNNER_TOKEN が必要です');
+if (!APP_URL) {
+  console.error('CATALYST_APP_URL が必要です');
   process.exit(1);
 }
-if (!CODESPACE_NAME) {
-  console.error('CODESPACE_NAME が見つかりません');
+if (!RUNNER_TOKEN && !JOB_ID) {
+  console.error('CATALYST_CLOUD_RUNNER_TOKEN が必要です');
+  process.exit(1);
+}
+if (!RUNNER_ID) {
+  console.error('CODESPACE_NAME または CATALYST_RUNNER_ID が見つかりません');
   process.exit(1);
 }
 
@@ -214,7 +261,7 @@ async function api(pathname, body, options = {}) {
 }
 
 function opencodeConfig() {
-  return {
+  const config = {
     $schema: 'https://opencode.ai/config.json',
     permission: {
       '*': 'deny',
@@ -252,35 +299,60 @@ function opencodeConfig() {
       doom_loop: 'deny',
     },
   };
+
+  if (useCustomLlm()) {
+    config.provider = {
+      katalyst: {
+        npm: '@ai-sdk/openai-compatible',
+        name: 'Katalyst',
+        options: {
+          baseURL: LLM_BASE_URL,
+          apiKey: LLM_API_KEY,
+          ...(LLM_OPENCODE ? { headers: { 'x-opencode-session': LLM_SESSION_ID } } : {}),
+        },
+        models: {
+          [LLM_MODEL]: { name: LLM_MODEL },
+        },
+      },
+    };
+  }
+
+  return config;
 }
 
 async function writeOpencodeHome(home, asUser) {
-  if (!OPENCODE_KEY) {
-    throw new Error('OPENCODE_GO_API_KEY が設定されていません');
+  if (!OPENCODE_KEY && !useCustomLlm()) {
+    throw new Error(
+      'OPENCODE_GO_API_KEY も KATALYST_LLM_* も設定されていません。LLM の認証設定を確認してください',
+    );
   }
-
-  const accountId = `acc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  const account = {
-    version: 2,
-    accounts: {
-      [accountId]: {
-        id: accountId,
-        serviceID: PROVIDER_ID,
-        description: 'katalyst-cloud-runner',
-        credential: { type: 'api', key: OPENCODE_KEY },
-      },
-    },
-    active: { [PROVIDER_ID]: accountId },
-  };
 
   const files = [
     [path.join(home, '.config', 'opencode', 'opencode.json'), JSON.stringify(opencodeConfig(), null, 2)],
-    [path.join(home, '.local', 'share', 'opencode', 'account.json'), JSON.stringify(account, null, 2)],
-    [
-      path.join(home, '.local', 'share', 'opencode', 'auth.json'),
-      JSON.stringify({ [PROVIDER_ID]: { type: 'api', key: OPENCODE_KEY } }, null, 2),
-    ],
   ];
+
+  if (OPENCODE_KEY) {
+    const accountId = `acc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const account = {
+      version: 2,
+      accounts: {
+        [accountId]: {
+          id: accountId,
+          serviceID: PROVIDER_ID,
+          description: 'katalyst-cloud-runner',
+          credential: { type: 'api', key: OPENCODE_KEY },
+        },
+      },
+      active: { [PROVIDER_ID]: accountId },
+    };
+    files.push(
+      [path.join(home, '.local', 'share', 'opencode', 'account.json'), JSON.stringify(account, null, 2)],
+      [
+        path.join(home, '.local', 'share', 'opencode', 'auth.json'),
+        JSON.stringify({ [PROVIDER_ID]: { type: 'api', key: OPENCODE_KEY } }, null, 2),
+      ],
+    );
+  }
 
   for (const [filePath, content] of files) {
     if (asUser) {
@@ -345,13 +417,18 @@ async function preparePrivileged(job) {
   return { home, workspace: REPO_DIR, root: null, cleanup: false };
 }
 
+function resolveModel(job) {
+  if (useCustomLlm()) return customModelId();
+  return job.model || MODEL;
+}
+
 async function runOpencode(job, context) {
   const args = [
     'run',
     '--format',
     'json',
     '--model',
-    job.model || MODEL,
+    resolveModel(job),
     '--auto',
     '--pure',
     '--print-logs',
@@ -852,7 +929,7 @@ async function reportJob(job, payload) {
 
   await api('/api/cloud/agent/report', {
     job_id: job.id,
-    codespace_name: CODESPACE_NAME,
+    codespace_name: RUNNER_ID,
     status: payload.status,
     summary: payload.summary,
     detail: payload.detail,
@@ -926,7 +1003,7 @@ function resultDiagnostics(result) {
 
 async function preflightOpencode(job, context) {
   const env = minimalEnv(context.home);
-  const model = job.model || MODEL;
+  const model = resolveModel(job);
   const asUser = job.kind === 'user_task' ? (job.sandbox_user || 'agent') : null;
   const result = asUser
     ? await runAsUser(asUser, 'opencode', ['models', '--pure'], {
@@ -1257,6 +1334,24 @@ async function main() {
 
   if (!GITHUB_API_TOKEN) {
     console.error('GITHUB_TOKEN が見つかりません');
+  }
+
+  // GitHub Actions では 1 実行 = 1 ジョブ。指定されたジョブだけを取得して終了する。
+  if (JOB_ID) {
+    if (!RUNNER_TOKEN) {
+      await bootstrapRunner();
+    }
+    console.log(`Runner ${RUNNER_ID}: claiming job ${JOB_ID}`);
+    const claimed = await api('/api/cloud/agent/claim', {
+      job_id: JOB_ID,
+      runner_id: RUNNER_ID,
+    });
+    if (!claimed.job) {
+      console.log(`Job ${JOB_ID} is not claimable (${claimed.reason || 'unknown'})`);
+      return;
+    }
+    await processJob(claimed.job);
+    return;
   }
 
   let idleMinutes = 15;
