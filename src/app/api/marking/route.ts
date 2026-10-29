@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { ruleBasedMarking, llmScoring } from '@/lib/ai/agents/marker';
-import { logCost, estimateOperationCost } from '@/lib/cost/model';
+import { logCost, estimateOperationCost, exceedsCostLimit } from '@/lib/cost/model';
 
 /**
  * GET: 目星済みアイテム一覧
@@ -43,10 +43,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { context, threshold = 0.5, use_llm = false } = await req.json();
+    const { context, threshold = 0.5, use_llm = false, max_cost } = await req.json();
 
     if (!context) {
       return NextResponse.json({ error: 'context is required' }, { status: 400 });
+    }
+
+    const costLimit = max_cost == null ? undefined : Number(max_cost);
+    if (costLimit !== undefined && (!Number.isFinite(costLimit) || costLimit < 0)) {
+      return NextResponse.json({ error: 'max_cost must be a non-negative number' }, { status: 400 });
     }
 
     // 課題とリソースを取得
@@ -80,31 +85,47 @@ export async function POST(req: NextRequest) {
     let results = ruleBasedMarking(allItems, context);
 
     // Layer 1: LLMスコアリング（オプション）
+    let scoringCost = 0;
+    let appliedLayer = 0;
+    let costLimited = false;
+
     if (use_llm) {
       const layer0Passed = allItems.filter((_, i) =>
         (results[i]?.relevance_score ?? 0) >= 0.3,
       );
 
       if (layer0Passed.length > 0) {
-        const llmResults = await llmScoring(layer0Passed, context);
+        const estimatedScoringCost = estimateOperationCost('scoring', layer0Passed.length);
 
-        // Layer 1の結果でスコアを上書き
-        results = results.map((r) => {
-          const llmResult = llmResults.find((lr) => lr.item_id === r.item_id);
-          if (llmResult) {
-            return { ...r, relevance_score: llmResult.relevance_score, reason: llmResult.reason };
-          }
-          return r;
-        });
+        // コスト上限を超える場合は LLM を呼ばず、ルールベースの結果を維持する
+        if (exceedsCostLimit(estimatedScoringCost, costLimit)) {
+          costLimited = true;
+        } else {
+          const llmResults = await llmScoring(layer0Passed, context);
 
-        // LLMコストを記録
-        await logCost({
-          userId: user.id,
-          operationType: 'scoring',
-          actualCost: estimateOperationCost('scoring', layer0Passed.length),
-          inputItemIds: layer0Passed.map((i) => i.id),
-        });
+          // Layer 1の結果でスコアを上書き
+          results = results.map((r) => {
+            const llmResult = llmResults.find((lr) => lr.item_id === r.item_id);
+            if (llmResult) {
+              return { ...r, relevance_score: llmResult.relevance_score, reason: llmResult.reason };
+            }
+            return r;
+          });
+
+          scoringCost = estimatedScoringCost;
+          appliedLayer = 1;
+        }
       }
+    }
+
+    // 目星付けの実コストを記録（ルールベースのみの場合も 0 円で記録）
+    if (allItems.length > 0) {
+      await logCost({
+        userId: user.id,
+        operationType: 'marking',
+        actualCost: scoringCost,
+        inputItemIds: allItems.map((i) => i.id),
+      });
     }
 
     // 閾値以上のアイテムをマーク
@@ -117,7 +138,6 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id);
 
     if (markedResults.length > 0) {
-      const layer = use_llm ? 1 : 0;
       const markRecords = markedResults.map((r) => {
         const item = allItems.find((i) => i.id === r.item_id);
         return {
@@ -125,8 +145,8 @@ export async function POST(req: NextRequest) {
           item_type: item?.type === 'detected_problem' ? 'insight' : 'resource',
           item_id: r.item_id,
           relevance_score: r.relevance_score,
-          scoring_cost: use_llm ? estimateOperationCost('scoring', 1) : 0,
-          layer,
+          scoring_cost: appliedLayer === 1 ? estimateOperationCost('scoring', 1) : 0,
+          layer: appliedLayer,
           context: r.reason,
         };
       });
@@ -138,6 +158,11 @@ export async function POST(req: NextRequest) {
       marked_count: markedResults.length,
       total_evaluated: allItems.length,
       items: markedResults,
+      cost: {
+        actual: scoringCost,
+        limit: costLimit ?? null,
+        cost_limited: costLimited,
+      },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
