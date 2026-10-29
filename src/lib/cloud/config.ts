@@ -75,6 +75,10 @@ export function getCloudConfig() {
     maxDiffLines: Math.max(50, Math.floor(numberValue(process.env.CLOUD_MAX_DIFF_LINES, 1500))),
     sandboxUser: text(process.env.CLOUD_SANDBOX_USER, 'agent'),
     model: text(process.env.OPENCODE_MODEL, DEFAULT_MODEL),
+    // クラウドランナーが独自プロバイダを使う場合の参考単価（USD / 1M tokens）。
+    // 0 のままなら opencode が返すコスト（不明なら 0）を使う。
+    llmInputCostPer1M: numberValue(process.env.KATALYST_LLM_INPUT_COST_PER_1M, 0),
+    llmOutputCostPer1M: numberValue(process.env.KATALYST_LLM_OUTPUT_COST_PER_1M, 0),
     creditPerMinute: numberValue(process.env.CLOUD_CREDIT_PER_MINUTE, 0.5),
     creditPer1kTokens: numberValue(process.env.CLOUD_CREDIT_PER_1K_TOKENS, 0.05),
     creditPerUsd: numberValue(process.env.CLOUD_CREDIT_PER_USD, 150),

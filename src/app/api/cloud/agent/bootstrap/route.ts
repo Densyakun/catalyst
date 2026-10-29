@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
             api_key: apiKey,
             model: resolveModelId('solving'),
             opencode: isOpenCodeBackend(),
+            input_cost_per_1m: config.llmInputCostPer1M,
+            output_cost_per_1m: config.llmOutputCostPer1M,
           }
         : null,
     };

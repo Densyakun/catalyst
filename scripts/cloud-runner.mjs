@@ -26,6 +26,8 @@ let LLM_BASE_URL = (process.env.KATALYST_LLM_BASE_URL || '').replace(/\/+$/, '')
 let LLM_API_KEY = process.env.KATALYST_LLM_API_KEY || '';
 let LLM_MODEL = process.env.KATALYST_LLM_MODEL || '';
 let LLM_OPENCODE = process.env.KATALYST_LLM_OPENCODE === '1';
+let LLM_INPUT_COST = Number(process.env.KATALYST_LLM_INPUT_COST_PER_1M) || 0;
+let LLM_OUTPUT_COST = Number(process.env.KATALYST_LLM_OUTPUT_COST_PER_1M) || 0;
 const LLM_SESSION_ID = `ses_${crypto.randomUUID().replace(/-/g, '')}`;
 
 function useCustomLlm() {
@@ -60,6 +62,8 @@ async function bootstrapRunner() {
     LLM_API_KEY = String(json.llm.api_key || '');
     LLM_MODEL = String(json.llm.model || '');
     LLM_OPENCODE = json.llm.opencode === true;
+    LLM_INPUT_COST = Number(json.llm.input_cost_per_1m) || 0;
+    LLM_OUTPUT_COST = Number(json.llm.output_cost_per_1m) || 0;
   }
 }
 
@@ -314,7 +318,12 @@ function opencodeConfig() {
           ...(LLM_OPENCODE ? { headers: { 'x-opencode-session': LLM_SESSION_ID } } : {}),
         },
         models: {
-          [LLM_MODEL]: { name: LLM_MODEL },
+          [LLM_MODEL]: {
+            name: LLM_MODEL,
+            ...((LLM_INPUT_COST > 0 || LLM_OUTPUT_COST > 0)
+              ? { cost: { input: LLM_INPUT_COST, output: LLM_OUTPUT_COST } }
+              : {}),
+          },
         },
       },
     };
@@ -602,6 +611,13 @@ async function runOpencode(job, context) {
   clearInterval(progressTimer);
   clearInterval(stallTimer);
   rl.close();
+
+  // 独自プロバイダでは opencode が単価を知らず cost が 0 になるため、
+  // 設定された参考単価から推定する（請求額そのものではない）。
+  if (costUsd <= 0 && (LLM_INPUT_COST > 0 || LLM_OUTPUT_COST > 0)) {
+    costUsd = (inputTokens / 1_000_000) * LLM_INPUT_COST
+      + (outputTokens / 1_000_000) * LLM_OUTPUT_COST;
+  }
 
   return {
     exitCode,
