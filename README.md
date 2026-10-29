@@ -108,18 +108,39 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
 - `CLOUD_EXECUTION_BACKEND=auto` にすると Actions を優先し、開始できなかった場合だけ Codespace にフォールバックします。`codespaces` で従来動作になります。
 - Codespace 作成が予算超過（HTTP 402）で拒否された場合は、理由をジョブに記録して無駄な起動を止めます。
 
+### Cloudflare の PR ビルド（プレビュー）
+PR ごとに Workers Builds が走る場合、既定の Preview コマンド `npx wrangler preview` は
+プレビュー専用の変数・シークレット・リソースを要求します。未設定だと PR のチェックだけが失敗します。
+
+`Workers & Pages` → `catalyst` → `Settings` → `Build` で次を設定してください。
+
+| 項目 | 値 |
+| --- | --- |
+| Build command | `npx opennextjs-cloudflare build` |
+| Deploy command（本番） | `npx wrangler deploy` |
+| Preview command（PR） | `npx wrangler preview` または `npx wrangler versions upload` |
+
+- `npx wrangler versions upload` を使う場合は `wrangler.jsonc` に `"preview_urls": true` を追加します。
+  ただし Version URL は**本番の Supabase などのリソースを共有**するため、本番データを触ってよい場合だけにしてください。
+- 本番データを分離したい場合は `wrangler preview` を使い、`Preview settings` にテスト用の
+  Supabase とシークレットを登録します。
+- プレビュー環境を用意しない場合は、`Settings` → `Build` で **Preview builds を無効化**してください。
+  その場合でも、このリポジトリの `.github/workflows/ci.yml` が PR ごとに型チェックと
+  `npm run build:cf` を実行します（public リポジトリは無料）。
+
 ### AI脅威対策
 - Issue 本文・コメント・リポジトリ内の文章は「信頼できないデータ」として扱い、プロンプト内で明確に区切ります。
 - HTMLコメント・不可視文字・指示の上書き・秘密情報の読み出し・外部送信・依存追加・CI/エージェント設定変更などを検出したジョブは `blocked` にして自動実行を停止します。管理者は「クラウド」タブで内容を確認して承認・却下できます。
 - 一般ユーザーの依頼は **OS ユーザーを分離したサンドボックス** で実行し、アプリ本体リポジトリ・GitHub トークン・ランナートークン・秘密情報にアクセスできないようにします。
 - エージェントにはシェル実行・Web取得・外部ディレクトリ参照・サブエージェント・スキル読込を許可しません。ファイルの読み書きと検索のみです。
-- 変更前に保護対象ファイル（CI、依存関係、エージェント設定、クラウド実装、環境変数など）と秘密情報を走査し、問題があれば push しません。
+- 変更前に保護対象ファイル（CI、依存関係、エージェント設定、クラウド実装、環境変数など）と秘密情報を走査します。
 - `CLOUD_AUTO_PUSH` は既定で `true` です。安全検査（秘密情報・保護対象ファイル・差分サイズ・型チェック）を通過した変更だけをブランチとして push し、PR を作成します（マージは人間が行います）。`false` にすると push/PR せず、管理者の確認待ちで停止します。
+- **実行設定に影響する**保護対象ファイル（`.github/`、`.devcontainer/`、`.opencode/`、`opencode.json`、`wrangler.*`、依存関係・lockfile、Dockerfile、`.env`、Supabase マイグレーションなど）は push しません。ブランチ上の設定で CI が動く事故を防ぐためです。
+- 上記以外の保護対象ファイル（`src/lib/cloud/`、`src/app/api/cloud/`、`src/components/CloudPanel.tsx` など）を含む変更は、管理者が GitHub で確認できるよう **下書きPR（draft）** として公開します。自動マージはされません。
 - 実行中は「受付 / リポジトリ準備 / 作業環境の準備 / AIが実装中 / 変更を検証中 / 公開準備中」の進捗がジョブに記録されます。
 - AI からの応答が `CLOUD_JOB_STALL_MINUTES`（既定 8 分）途絶えた場合は、時間切れを待たずに理由付きで終了します。
 - ランナーが途中で落ちても、それまでのトークン使用量と失敗理由がジョブに残ります（`supabase_migration_v17.sql` を適用してください）。
 - ランナーは Codespace 起動時に常駐し、異常終了した場合だけ自動で再起動します（`scripts/cloud-runner-supervisor.sh`）。
-- 保護対象ファイル（CI、依存関係、エージェント設定、クラウド実装、環境変数など）の変更は常に停止します。必要な場合は人間が手動で対応してください。
 
 ### Codespace の再利用と停止
 - 1つの Codespace を複数ジョブで使い回します。10分おきのチェックごとに新しい環境は作りません。

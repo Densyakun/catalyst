@@ -510,7 +510,7 @@ function JobRow({
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
           {job.pr_url && (
             <a href={job.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>
-              <ExternalLink size={11} /> 変更内容を見る
+              <ExternalLink size={11} /> {job.status === 'blocked' ? '確認用の下書きPRを見る' : '変更内容を見る'}
             </a>
           )}
           {isAdmin && job.issue_url && (

@@ -844,11 +844,49 @@ function safeDetail(text, maxLength = 12000) {
   return scanSecrets(cleaned).length ? '（出力は安全のため非表示にしました）' : cleaned;
 }
 
-async function publishIssueBranch(job, summary) {
+/**
+ * 実行設定（CI・依存・エージェント設定など）に触れる変更は、PR を作っても
+ * ブランチ上の設定でビルドやワークフローが動くため、絶対に自動 push しない。
+ */
+const EXECUTION_PROTECTED = [
+  /(^|\/)\.github\//,
+  /(^|\/)\.devcontainer\//,
+  /(^|\/)\.opencode\//,
+  /(^|\/)\.claude\//,
+  /(^|\/)\.cursor\//,
+  /(^|\/)opencode\.jsonc?$/,
+  /(^|\/)AGENTS\.md$/,
+  /(^|\/)CLAUDE\.md$/,
+  /(^|\/)wrangler\.(jsonc|toml)$/,
+  /(^|\/)open-next\.config\.ts$/,
+  /(^|\/)next\.config\.(js|mjs|ts)$/,
+  /(^|\/)package(-lock)?\.json$/,
+  /(^|\/)(pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/,
+  /(^|\/)\.npmrc$/,
+  /(^|\/)\.yarnrc.*$/,
+  /(^|\/)\.gitmodules$/,
+  /(^|\/)Dockerfile$/,
+  /(^|\/)docker-compose.*\.ya?ml$/,
+  /(^|\/)supabase_(schema|migration_.*)\.sql$/,
+  /(^|\/)\.env(\.|$)/,
+  /\.pem$/,
+  /(^|\/)id_rsa/,
+  /(^|\/)id_ed25519/,
+  /(^|\/)tsconfig.*\.json$/,
+  /(^|\/)jsconfig.*\.json$/,
+  /(^|\/)eslint\.config\.(js|mjs|cjs|ts)$/,
+];
+
+function isReviewableProtected(file) {
+  return !EXECUTION_PROTECTED.some((pattern) => pattern.test(file));
+}
+
+async function publishIssueBranch(job, summary, options = {}) {
   const repo = job.repo || GITHUB_REPOSITORY;
   const branch = job.branch || `katalyst/issue-${job.issue_number || Date.now()}`;
-  const title = sanitizeCommitText(job.title, 120);
-  const message = `fix: ${title}\n\nAutomated cloud agent work for ${job.issue_url || title}`;
+  const draft = options.draft === true;
+  const title = `${draft ? '[要確認] ' : ''}${sanitizeCommitText(job.title, 120)}`;
+  const message = `fix: ${sanitizeCommitText(job.title, 120)}\n\nAutomated cloud agent work for ${job.issue_url || 'issue'}`;
 
   await run('git', ['checkout', '-B', branch], { cwd: REPO_DIR });
   await run('git', ['add', '-A'], { cwd: REPO_DIR });
@@ -882,30 +920,44 @@ async function publishIssueBranch(job, summary) {
   }
 
   const base = await defaultBranch(REPO_DIR, repo);
-  const body = [
-    safeSummary(summary),
-    '',
-    job.issue_url ? `Refs: ${job.issue_url}` : '',
-  ].join('\n');
+  const warning = draft
+    ? [
+        '> [!WARNING]',
+        '> 保護対象ファイルを含む変更のため、**下書きPR** として作成しています。',
+        '> マージ前に管理者が変更内容を確認してください（自動マージはされません）。',
+        '',
+        ...(options.protectedFiles?.length
+          ? ['変更した保護対象ファイル:', ...options.protectedFiles.map((file) => `- \`${file}\``), '']
+          : []),
+        ...(options.securityFlags?.length
+          ? ['検出項目:', ...options.securityFlags.map((flag) => `- ${flag}`), '']
+          : []),
+      ].join('\n')
+    : '';
+  const body = [warning, safeSummary(summary), '', job.issue_url ? `Refs: ${job.issue_url}` : '']
+    .filter(Boolean)
+    .join('\n');
 
-  const pr = await run(
-    'gh',
-    [
-      'pr',
-      'create',
-      '--repo',
-      repo,
-      '--base',
-      base,
-      '--head',
-      branch,
-      '--title',
-      title,
-      '--body',
-      body,
-    ],
-    { cwd: REPO_DIR, env: { ...process.env, GH_TOKEN: GITHUB_API_TOKEN } },
-  );
+  const args = [
+    'pr',
+    'create',
+    '--repo',
+    repo,
+    '--base',
+    base,
+    '--head',
+    branch,
+    '--title',
+    title,
+    '--body',
+    body,
+  ];
+  if (draft) args.push('--draft');
+
+  const pr = await run('gh', args, {
+    cwd: REPO_DIR,
+    env: { ...process.env, GH_TOKEN: GITHUB_API_TOKEN },
+  });
 
   if (pr.code !== 0) {
     throw new Error(pr.stderr.trim() || 'PR の作成に失敗しました');
@@ -1208,15 +1260,20 @@ async function processJob(job) {
     return;
   }
 
-  if (review.protectedHits.length > 0) {
+  if (review.protectedHits.length > 0 && !review.protectedHits.every(isReviewableProtected)) {
     await reportJob(job, {
       status: 'blocked',
-      summary: '保護対象ファイルの変更を検出したため停止しました。管理者の確認が必要です。',
-      detail: [`変更ファイル: ${review.files.join(', ')}`, '', review.diffText.slice(0, 8000)].join('\n'),
+      summary: '実行設定に関わる保護対象ファイルの変更を検出したため停止しました。',
+      detail: [
+        'CI・依存関係・エージェント設定など、自動実行に影響するファイルのため push しません。',
+        `変更ファイル: ${review.files.join(', ')}`,
+        '',
+        review.diffText.slice(0, 8000),
+      ].join('\n'),
       error: 'protected_path_change',
       securityFlags: unique(reviewFlags),
       blockedStage: 'diff',
-      keepCodespace: true,
+      keepCodespace: false,
       usage,
     });
     return;
@@ -1279,6 +1336,56 @@ async function processJob(job) {
       keepCodespace: true,
       usage,
     });
+    return;
+  }
+
+  // 保護対象でも、実行設定に影響しないアプリ実装の変更は、管理者が GitHub で
+  // 確認できるよう下書きPRとして公開する（自動マージはされない）。
+  if (review.protectedHits.length > 0) {
+    await reportStage(job, 'publish', usage);
+    try {
+      const published = await publishIssueBranch(job, text, {
+        draft: true,
+        protectedFiles: review.protectedHits,
+        securityFlags: unique(reviewFlags),
+      });
+      await reportJob(job, {
+        status: 'blocked',
+        summary: '保護対象ファイルを含むため、確認用の下書きPRを作成しました。管理者が内容を確認してください。',
+        detail: [
+          `変更ファイル: ${review.files.join(', ')}`,
+          `下書きPR: ${published.prUrl}`,
+          '',
+          'マージ前に、認可・入力検証・秘密情報の扱いを確認してください。',
+          '',
+          review.diffText.slice(0, 8000),
+        ].join('\n'),
+        prUrl: published.prUrl,
+        branch: published.branch,
+        error: 'protected_path_change',
+        securityFlags: unique(reviewFlags),
+        blockedStage: 'diff',
+        keepCodespace: false,
+        usage,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await reportJob(job, {
+        status: 'blocked',
+        summary: '保護対象ファイルの変更を検出し、確認用PRの作成にも失敗しました。',
+        detail: [
+          `変更ファイル: ${review.files.join(', ')}`,
+          `PR作成エラー: ${message}`,
+          '',
+          review.diffText.slice(0, 8000),
+        ].join('\n'),
+        error: 'protected_path_change',
+        securityFlags: unique(reviewFlags),
+        blockedStage: 'diff',
+        keepCodespace: false,
+        usage,
+      });
+    }
     return;
   }
 
