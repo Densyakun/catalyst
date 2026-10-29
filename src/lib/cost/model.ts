@@ -48,6 +48,18 @@ export function estimateOperationCost(
 }
 
 /**
+ * 推定コストが指定された上限を超えるか判定する。
+ * 上限が未指定（undefined/null）の場合は制限なしとして false を返す。
+ */
+export function exceedsCostLimit(
+  estimatedCost: number,
+  maxCost?: number | null,
+): boolean {
+  if (maxCost == null || !Number.isFinite(maxCost)) return false;
+  return estimatedCost > maxCost;
+}
+
+/**
  * 社会課題の推定受益者数を取得
  */
 export async function getEstimatedBeneficiaries(
