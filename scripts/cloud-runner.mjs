@@ -18,7 +18,7 @@ const RUNNER_ID = process.env.CATALYST_RUNNER_ID || CODESPACE_NAME;
 const JOB_ID = process.env.CATALYST_JOB_ID || '';
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || '';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
-const GITHUB_API_TOKEN = process.env.CATALYST_GITHUB_TOKEN || GITHUB_TOKEN;
+let GITHUB_API_TOKEN = process.env.CATALYST_GITHUB_TOKEN || GITHUB_TOKEN;
 
 // Actions では OPENCODE_GO_API_KEY の代わりに、アプリと同じ LLM 設定を使える。
 // 値は起動時にアプリの bootstrap API から受け取る（リポジトリに保存しない）。
@@ -52,6 +52,9 @@ async function bootstrapRunner() {
     throw new Error(`ランナー設定の取得に失敗しました: ${json.error || res.status}`);
   }
   RUNNER_TOKEN = String(json.runner_token);
+  if (json.github_token) {
+    GITHUB_API_TOKEN = String(json.github_token);
+  }
   if (json.llm) {
     LLM_BASE_URL = String(json.llm.base_url || '').replace(/\/+$/, '');
     LLM_API_KEY = String(json.llm.api_key || '');

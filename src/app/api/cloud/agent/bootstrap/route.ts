@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.OPENAI_API_KEY || '';
     const payload = {
       runner_token: config.runnerToken,
+      // 成果物の push / PR 作成に使う。GitHub Actions の GITHUB_TOKEN で作った
+      // コミットは他のワークフロー（PR の CI）を起動しないため、PAT を使う。
+      github_token: config.githubToken,
       llm: apiKey
         ? {
             base_url: getLlmBaseUrl(),

@@ -88,6 +88,8 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
    - 必要に応じて `ADMIN_EMAILS` / `ADMIN_USER_IDS`
 2. GitHub の Repository Settings → Actions → General で
    「Allow GitHub Actions to create and approve pull requests」を有効にする
+   （クラウドランナーは bootstrap で受け取った PAT で PR を作るため必須ではありませんが、
+   有効にしておくと GitHub Actions のトークンだけでも PR を作れます）
 3. Codespace で実行する場合のみ、Repository Settings → Codespaces → Secrets に以下を登録する
    - `CATALYST_APP_URL` / `CATALYST_CLOUD_RUNNER_TOKEN`
    - `OPENCODE_GO_API_KEY` / `OPENCODE_MODEL`
