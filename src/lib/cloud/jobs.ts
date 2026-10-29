@@ -3,20 +3,12 @@ import { notifyUser } from '@/lib/notifications';
 import { calculateCloudCredits, chargePoolUpTo, chargeUserUpTo } from './credits';
 import { getCloudConfig } from './config';
 import {
-  createCodespace,
   dispatchRepoEvent,
-  getCodespace,
-  getRepo,
   getWorkflowRun,
-  GitHubError,
-  listDevcontainerPaths,
   listOpenIssues,
   listRepoActionVariables,
-  listRepoCodespaceSecrets,
   listRepoWorkflows,
-  listUserCodespaceSecrets,
   putRepoActionVariable,
-  stopCodespace,
   type GitHubIssue,
 } from './github';
 import type { CloudBlockedStage, CloudJob, CloudJobStatus } from '@/lib/types/cloud';
@@ -42,7 +34,6 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
     issue_number: row.issue_number == null ? null : num(row.issue_number),
     issue_url: row.issue_url ? String(row.issue_url) : null,
     pr_url: row.pr_url ? String(row.pr_url) : null,
-    codespace_url: isAdmin && row.codespace_url ? String(row.codespace_url) : null,
     funded_by: (row.funded_by as CloudJob['funded_by']) || 'user',
     payment_status: (row.payment_status as CloudJob['payment_status']) || 'pending',
     credits_estimated: num(row.credits_estimated),
@@ -65,7 +56,6 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
       ? metadata.security_flags.map((flag) => String(flag)).slice(0, 20)
       : undefined,
     human_approved: isAdmin ? metadata.human_approved === true : undefined,
-    keep_codespace: isAdmin ? metadata.keep_codespace === true : undefined,
     progress_stage: isAdmin && metadata.stage ? String(metadata.stage) : null,
     created_at: String(row.created_at),
     started_at: row.started_at ? String(row.started_at) : null,
@@ -163,148 +153,7 @@ export function buildUserTaskPrompt(title: string, prompt: string): string {
   ].join('\n');
 }
 
-/** ランナーが Codespace 内で起動するために必要な Codespaces シークレット。 */
-const RUNNER_REQUIRED_SECRETS = [
-  'CATALYST_APP_URL',
-  'CATALYST_CLOUD_RUNNER_TOKEN',
-  'OPENCODE_GO_API_KEY',
-] as const;
-
-const CODESPACES_BUDGET_MESSAGE =
-  'GitHub Codespaces の利用上限（予算）に達しているため、作業環境を起動できません。GitHub の Billing 設定で Codespaces の予算を増やすと再開します。';
-
-export interface RunnerReadiness {
-  checked_at: string;
-  /** ユーザー単位の Codespaces シークレット名（取得できなければ null） */
-  user_secrets: string[] | null;
-  user_secrets_error: number | null;
-  /** リポジトリ単位の Codespaces シークレット名（取得できなければ null） */
-  repo_secrets: string[] | null;
-  repo_secrets_error: number | null;
-  devcontainers: string[] | null;
-  missing: string[];
-  /** シークレット名を取得できたか。取得できない場合は「不明」として起動を許可する。 */
-  verified: boolean;
-}
-
-let readinessCache: { at: number; value: RunnerReadiness } | null = null;
-const READINESS_TTL_MS = 5 * 60 * 1000;
-
-/**
- * ランナー起動に必要な設定が GitHub 側に揃っているかを確認する。
- *
- * これが欠けていると Codespace は起動するがランナーが一度も接続せず、
- * 「作業環境が起動しなかった」としか分からない失敗になる。
- * 原因を特定できるよう、確認結果をジョブに残す。
- */
-export async function inspectRunnerReadiness(
-  config: ReturnType<typeof getCloudConfig>,
-  force = false,
-): Promise<RunnerReadiness> {
-  if (!force && readinessCache && Date.now() - readinessCache.at < READINESS_TTL_MS) {
-    return readinessCache.value;
-  }
-
-  const token = config.githubToken;
-  const [userResult, repoResult, devcontainers] = await Promise.all([
-    listUserCodespaceSecrets(token).catch(() => ({ names: null, error: null })),
-    config.repo
-      ? listRepoCodespaceSecrets(token, config.repo).catch(() => ({ names: null, error: null }))
-      : Promise.resolve({ names: null, error: null }),
-    config.repo
-      ? listDevcontainerPaths(token, config.repo).catch(() => null)
-      : Promise.resolve(null),
-  ]);
-
-  const available = new Set<string>([
-    ...(userResult.names || []),
-    ...(repoResult.names || []),
-  ]);
-  // 片方の一覧しか読めない場合は「別のスコープに設定されているだけ」の可能性があるため、
-  // 欠落と断定しない（誤って起動を止めない）。
-  const verified = userResult.names !== null && repoResult.names !== null;
-  const missing = verified
-    ? RUNNER_REQUIRED_SECRETS.filter((name) => !available.has(name))
-    : [];
-
-  const value: RunnerReadiness = {
-    checked_at: new Date().toISOString(),
-    user_secrets: userResult.names,
-    user_secrets_error: userResult.error,
-    repo_secrets: repoResult.names,
-    repo_secrets_error: repoResult.error,
-    devcontainers,
-    missing,
-    verified,
-  };
-  readinessCache = { at: Date.now(), value };
-  return value;
-}
-
-/**
- * ランナー起動設定の診断結果を、直近のアプリ課題ジョブに記録する。
- * 起動失敗時に「何が足りないか」を管理画面・DB から確認できるようにする。
- */
-export async function recordRunnerReadiness(): Promise<void> {
-  const config = getCloudConfig();
-  if (!config.githubToken || !config.repo) return;
-
-  const readiness = await inspectRunnerReadiness(config).catch(() => null);
-  const actionsReadiness = await inspectActionsReadiness(config).catch(() => null);
-  if (!readiness && !actionsReadiness) return;
-  console.log(
-    'Cloud runner readiness:',
-    JSON.stringify({ codespaces: readiness, actions: actionsReadiness }),
-  );
-
-  const admin = createAdminClient();
-  const { data: latest } = await admin
-    .from('cloud_jobs')
-    .select('id, metadata')
-    .eq('kind', 'app_issue')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!latest) return;
-
-  const metadata = (latest.metadata as Record<string, unknown> | null) || {};
-  await admin
-    .from('cloud_jobs')
-    .update({
-      metadata: {
-        ...metadata,
-        ...(readiness ? { runner_readiness: readiness } : {}),
-        ...(actionsReadiness ? { actions_readiness: actionsReadiness } : {}),
-      },
-    })
-    .eq('id', String(latest.id));
-}
-
-async function saveRunnerReadiness(
-  rows: Row[],
-  readiness: RunnerReadiness,
-): Promise<void> {
-  if (rows.length === 0) return;
-  const admin = createAdminClient();
-  for (const row of rows.slice(0, 5)) {
-    const metadata = (row.metadata as Record<string, unknown> | null) || {};
-    const patch: Row = {
-      metadata: { ...metadata, runner_readiness: readiness },
-    };
-    if (readiness.missing.length) {
-      patch.error = `作業環境の起動設定が不足しています（${readiness.missing.join(', ')}）。管理者が Codespaces シークレットを設定すると自動で再開します。`;
-    } else {
-      patch.error = null;
-    }
-    await admin
-      .from('cloud_jobs')
-      .update(patch)
-      .eq('id', String(row.id))
-      .eq('status', 'queued');
-  }
-}
-
-/** GitHub Actions で実行するランナーの識別子（Codespace 名と区別する）。 */
+/** GitHub Actions で実行するランナーの識別子。 */
 export function isActionsRunner(name: string | null | undefined): boolean {
   return typeof name === 'string' && name.startsWith('actions-');
 }
@@ -377,6 +226,32 @@ export async function inspectActionsReadiness(
   return { workflow, variables, missing };
 }
 
+/** Actions 実行設定の診断結果を、直近のアプリ課題ジョブに記録する。 */
+export async function recordActionsReadiness(): Promise<void> {
+  const config = getCloudConfig();
+  if (!config.githubToken || !config.repo) return;
+
+  const readiness = await inspectActionsReadiness(config).catch(() => null);
+  if (!readiness) return;
+  console.log('Cloud Actions readiness:', JSON.stringify(readiness));
+
+  const admin = createAdminClient();
+  const { data: latest } = await admin
+    .from('cloud_jobs')
+    .select('id, metadata')
+    .eq('kind', 'app_issue')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!latest) return;
+
+  const metadata = (latest.metadata as Record<string, unknown> | null) || {};
+  await admin
+    .from('cloud_jobs')
+    .update({ metadata: { ...metadata, actions_readiness: readiness } })
+    .eq('id', String(latest.id));
+}
+
 export interface ActionsDispatchResult {
   ok: boolean;
   runnerId: string | null;
@@ -410,7 +285,6 @@ async function dispatchActionsJob(
     .update({
       status: 'provisioning',
       codespace_name: runnerId,
-      codespace_url: null,
       started_at: now,
       heartbeat_at: now,
       metadata: { ...metadata, execution_backend: 'actions', runner_id: runnerId },
@@ -423,7 +297,6 @@ async function dispatchActionsJob(
 
   const { error: sessionError } = await admin.from('cloud_sessions').insert({
     codespace_name: runnerId,
-    codespace_url: null,
     status: 'starting',
     runner_seen_at: now,
     updated_at: now,
@@ -490,7 +363,7 @@ export async function enqueueAppIssues(): Promise<number> {
   if (issues.length === 0) return 0;
 
   // 議論・重複・対応不要の Issue まで実装対象にすると、実装できない課題のたびに
-  // Codespace が起動してしまうため、実装対象外のラベルは最初から除外する。
+  // 実行時間を消費するため、実装対象外のラベルは最初から除外する。
   const ignoredLabels = new Set(config.autoSkipLabels);
   // 大きな企画（epic）よりも、短く具体的な Issue を優先する。
   // クラウドエージェントは1回の実行で小さな改善を完了させる必要がある。
@@ -526,7 +399,7 @@ export async function enqueueAppIssues(): Promise<number> {
 
   // 失敗・時間切れを繰り返した Issue は、同じ Issue ばかりに枠を使わないよう
   // 一定時間クールダウンしてから再実行する。ただし再試行回数には上限を設ける。
-  // 上限がないと、実装できない自己進化の課題が残っている限り Codespace が起動し続ける。
+  // 上限がないと、実装できない自己進化の課題が残っている限り実行を繰り返す。
   // 試行回数は直近7日間で数える。一時的な障害で永久にブロックしないよう、
   // 一定期間が過ぎれば再試行の機会を残す。
   const attemptWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -632,7 +505,7 @@ export async function startQueuedJobs(appUrl?: string): Promise<number> {
   const { data: activeSessions } = await admin
     .from('cloud_sessions')
     .select('id')
-    .in('status', ['starting', 'idle', 'busy', 'review']);
+    .in('status', ['starting', 'idle', 'busy']);
   const slots = config.maxConcurrent - (activeSessions || []).length;
   if (slots <= 0) return 0;
 
@@ -645,39 +518,7 @@ export async function startQueuedJobs(appUrl?: string): Promise<number> {
     .limit(Math.min(slots, 10));
   if (!queuedJobs || queuedJobs.length === 0) return 0;
 
-  const toCreate = Math.min(slots, queuedJobs.length);
-  let started = 0;
-
-  // GitHub Actions（パブリックリポジトリは無料）を優先する。
-  // Codespaces の予算切れでもクラウド作業を継続できる。
-  const actionsAvailable = config.executionBackend !== 'codespaces'
-    && await ensureActionsWorkflowExists(config).catch(() => false);
-
-  if (actionsAvailable) {
-    for (const job of queuedJobs.slice(0, toCreate)) {
-      const result = await dispatchActionsJob(config, job as Row, runnerAppUrl).catch((error) => ({
-        ok: false,
-        runnerId: null,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      if (result.ok) {
-        started += 1;
-        continue;
-      }
-      console.error('Dispatching cloud job to GitHub Actions failed:', result.error);
-      if (config.executionBackend === 'actions') {
-        await admin
-          .from('cloud_jobs')
-          .update({
-            error: `GitHub Actions で作業を開始できませんでした: ${result.error || '不明なエラー'}`.slice(0, 2000),
-          })
-          .eq('id', String(job.id))
-          .eq('status', 'queued');
-      }
-    }
-    if (config.executionBackend === 'actions' || started > 0) return started;
-    // auto モードで開始できなかった場合のみ Codespace にフォールバックする。
-  } else if (config.executionBackend === 'actions') {
+  if (!(await ensureActionsWorkflowExists(config).catch(() => false))) {
     const reason =
       `GitHub Actions のワークフロー（${ACTIONS_WORKFLOW_FILE}）が見つからないか無効です。` +
       'リポジトリの default ブランチに配置されているか確認してください。';
@@ -690,175 +531,27 @@ export async function startQueuedJobs(appUrl?: string): Promise<number> {
     return 0;
   }
 
-  // 直近1時間に起動失敗（ランナー未接続）が続いている場合は、設定不備などで
-  // Codespace の作成と停止を無限に繰り返さないよう、新規作成を止める。
-  const failureCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count: recentStartFailures } = await admin
-    .from('cloud_sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'failed')
-    .gte('created_at', failureCutoff);
-  if ((recentStartFailures ?? 0) >= config.maxStartFailuresPerHour) {
-    console.error(
-      `Skipping codespace creation: ${recentStartFailures} sessions failed to start in the last hour`,
-    );
-    return 0;
-  }
+  const toStart = Math.min(slots, queuedJobs.length);
+  let started = 0;
 
-  const readiness = await inspectRunnerReadiness(config);
-  await saveRunnerReadiness(queuedJobs as Row[], readiness);
-  if (readiness.verified && readiness.missing.length > 0) {
-    // Codespace を作ってもランナーが接続できないため、無駄な起動をしない。
-    console.error(
-      `Cloud runner cannot start: missing Codespaces secrets (${readiness.missing.join(', ')})`,
-    );
-    return 0;
-  }
-
-  const repo = await getRepo(config.githubToken, config.repo);
-
-  for (const job of queuedJobs.slice(0, toCreate)) {
-    let codespaceName = '';
-    try {
-      const now = new Date().toISOString();
-      const codespace = await createCodespace(config.githubToken, {
-        repositoryId: repo.id,
-        ref: config.ref || repo.default_branch,
-        machine: config.machine,
-        devcontainerPath: config.devcontainerPath,
-        idleTimeoutMinutes: config.idleMinutes,
-        retentionPeriodMinutes: config.retentionMinutes,
-        displayName: `katalyst-session-${Date.now().toString(36)}`,
-      });
-      codespaceName = codespace.name;
-
-      // ランナー未接続の原因が「ビルド失敗」か「起動後の設定不足」かを
-      // 切り分けられるよう、作成直後の状態を残しておく。
-      let codespaceState = codespace.state;
-      try {
-        const info = await getCodespace(config.githubToken, codespace.name);
-        if (info?.state) codespaceState = info.state;
-      } catch (stateError) {
-        console.error('Fetching codespace state failed:', stateError);
-      }
-
-      const { error } = await admin.from('cloud_sessions').insert({
-        codespace_name: codespace.name,
-        codespace_url: codespace.webUrl || null,
-        status: 'starting',
-        runner_seen_at: now,
-        updated_at: now,
-      });
-      if (error) {
-        try {
-          await stopCodespace(config.githubToken, codespace.name);
-        } catch (stopError) {
-          console.error('Stopping orphaned codespace failed:', stopError);
-        }
-        throw error;
-      }
-
-      // 起動した環境を特定のジョブに割り当てる。ジョブを queued のままにすると
-      // ランナーが来なかった場合に「起動したのに何も実行されない」状態が続く。
-      const { data: assigned, error: assignError } = await admin
-        .from('cloud_jobs')
-        .update({
-          status: 'provisioning',
-          codespace_name: codespace.name,
-          codespace_url: codespace.webUrl || null,
-          started_at: now,
-          heartbeat_at: now,
-        })
-        .eq('id', String(job.id))
-        .eq('status', 'queued')
-        .select('id')
-        .maybeSingle();
-
-      if (assignError) throw assignError;
-      if (!assigned) {
-        // 別のランナーが先にジョブを取得していた場合、この環境は使わない。
-        // ただし取得先がこの Codespace 自身なら、そのまま処理を続ける。
-        const { data: currentJob } = await admin
-          .from('cloud_jobs')
-          .select('status, codespace_name')
-          .eq('id', String(job.id))
-          .maybeSingle();
-        const claimedHere = currentJob
-          && String(currentJob.codespace_name || '') === codespace.name
-          && ['provisioning', 'running'].includes(String(currentJob.status));
-        if (claimedHere) {
-          started += 1;
-          continue;
-        }
-
-        try {
-          await stopCodespace(config.githubToken, codespace.name);
-        } catch (stopError) {
-          console.error('Stopping unused codespace failed:', stopError);
-        }
-        await admin
-          .from('cloud_sessions')
-          .update({
-            status: 'stopped',
-            stopped_at: now,
-            updated_at: now,
-          })
-          .eq('codespace_name', codespace.name);
-        continue;
-      }
-
+  for (const job of queuedJobs.slice(0, toStart)) {
+    const result = await dispatchActionsJob(config, job as Row, runnerAppUrl).catch((error) => ({
+      ok: false,
+      runnerId: null,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    if (result.ok) {
       started += 1;
-
-      const nextMetadata: Record<string, unknown> = {
-        ...((job.metadata as Record<string, unknown> | null) || {}),
-        runner_readiness: readiness,
-        codespace_state: codespaceState,
-        codespace_state_at: now,
-      };
-      delete nextMetadata.provision_error;
-      delete nextMetadata.provision_error_at;
-      await admin
-        .from('cloud_jobs')
-        .update({ metadata: nextMetadata })
-        .eq('id', String(job.id));
-    } catch (error) {
-      console.error('Creating cloud session failed:', error);
-      if (error instanceof GitHubError && error.status === 402) {
-        // Codespaces の無料枠・予算を使い切っている。作成を繰り返しても
-        // 課金状態が変わるまで成功しないため、管理者が気づける理由を残す。
-        const metadata = (job.metadata as Record<string, unknown> | null) || {};
-        await admin
-          .from('cloud_jobs')
-          .update({
-            error: CODESPACES_BUDGET_MESSAGE,
-            metadata: {
-              ...metadata,
-              provision_error: 'codespaces_budget_exceeded',
-              provision_error_at: new Date().toISOString(),
-            },
-          })
-          .eq('id', String(job.id))
-          .eq('status', 'queued');
-        continue;
-      }
-      if (codespaceName) {
-        try {
-          await stopCodespace(config.githubToken, codespaceName);
-        } catch (stopError) {
-          console.error('Stopping failed codespace failed:', stopError);
-        }
-        const now = new Date().toISOString();
-        await admin
-          .from('cloud_sessions')
-          .update({
-            status: 'failed',
-            current_job_id: null,
-            stopped_at: now,
-            updated_at: now,
-          })
-          .eq('codespace_name', codespaceName);
-      }
+      continue;
     }
+    console.error('Dispatching cloud job to GitHub Actions failed:', result.error);
+    await admin
+      .from('cloud_jobs')
+      .update({
+        error: `GitHub Actions で作業を開始できませんでした: ${result.error || '不明なエラー'}`.slice(0, 2000),
+      })
+      .eq('id', String(job.id))
+      .eq('status', 'queued');
   }
 
   return started;
@@ -869,46 +562,12 @@ export async function sweepStaleJobs(): Promise<number> {
   const admin = createAdminClient();
   const now = Date.now();
 
-  // ランナーが接続する前にどこで止まっているかを追跡する。
-  // 起動待ちのジョブについて、Codespace の状態を定期的に記録する。
-  try {
-    const { data: pending } = await admin
-      .from('cloud_jobs')
-      .select('id, codespace_name, metadata')
-      .eq('status', 'provisioning')
-      .not('codespace_name', 'is', null)
-      .order('started_at', { ascending: false })
-      .limit(5);
-    for (const job of (pending || []) as Row[]) {
-      // GitHub Actions の実行には Codespace の状態が無い。
-      if (isActionsRunner(String(job.codespace_name || ''))) continue;
-      const info = await getCodespace(config.githubToken, String(job.codespace_name)).catch(
-        () => null,
-      );
-      if (!info) continue;
-      const metadata = (job.metadata as Record<string, unknown> | null) || {};
-      if (metadata.codespace_state === info.state) continue;
-      await admin
-        .from('cloud_jobs')
-        .update({
-          metadata: {
-            ...metadata,
-            codespace_state: info.state,
-            codespace_state_at: new Date().toISOString(),
-          },
-        })
-        .eq('id', String(job.id));
-    }
-  } catch (error) {
-    console.error('Tracking codespace state failed:', error);
-  }
-
   const staleHeartbeatCutoff = now - 2 * 60 * 1000;
   const deadHeartbeatCutoff = now - 10 * 60 * 1000;
   const runningLookback = new Date(now - 10 * 60 * 1000).toISOString();
   // ランナー起動待ちの判定より後にプロビジョニングの打ち切りが来るようにする。
   const staleProvisioningCutoff = new Date(
-    now - Math.max(15, config.runnerStartTimeoutMinutes + 5) * 60 * 1000,
+    now - config.runnerStartTimeoutMinutes * 60 * 1000,
   ).toISOString();
 
   const [{ data: runningRows }, { data: staleProvisioning }] = await Promise.all([
@@ -949,15 +608,8 @@ export async function sweepStaleJobs(): Promise<number> {
     const metadata = (job.metadata as Record<string, unknown> | null) || {};
     const savedUsage = (metadata.usage as Record<string, unknown> | undefined) || {};
     // ランナーが一度もジョブを取得していない場合（provisioning のまま）は、
-    // 実行タイムアウトではなく「作業環境が起動しなかった」として扱う。
+    // 実行タイムアウトではなく「ランナーが起動しなかった」として扱う。
     const neverClaimed = String(job.status) === 'provisioning';
-    let codespaceInfo = null;
-    if (neverClaimed && job.codespace_name && !isActionsRunner(String(job.codespace_name))) {
-      codespaceInfo = await getCodespace(
-        config.githubToken,
-        String(job.codespace_name),
-      ).catch(() => null);
-    }
     await finalizeCloudJob({
       jobId: String(job.id),
       status: neverClaimed ? 'failed' : 'timed_out',
@@ -966,9 +618,7 @@ export async function sweepStaleJobs(): Promise<number> {
         : '実行時間の上限を超えたため終了しました。',
       detail: neverClaimed
         ? [
-            `codespace_state: ${codespaceInfo?.state || 'unknown'}`,
-            `codespace_last_used_at: ${codespaceInfo?.lastUsedAt || '-'}`,
-            `devcontainer_path: ${codespaceInfo?.devcontainerPath || '-'}`,
+            `runner_id: ${job.codespace_name || '-'}`,
             `started_at: ${job.started_at || '-'}`,
           ].join('\n')
         : undefined,
@@ -979,266 +629,38 @@ export async function sweepStaleJobs(): Promise<number> {
         outputTokens: num(savedUsage.output_tokens ?? job.output_tokens),
         costUsd: num(savedUsage.cost_usd ?? job.cost_usd),
       },
-      stopCodespaceAfter: true,
     });
     stopped += 1;
   }
 
-  const sessionStaleCutoff = new Date(
-    now - (config.runnerIdleMinutes + 3) * 60 * 1000,
-  ).toISOString();
-  const reviewStaleCutoff = new Date(
-    now - Math.max(config.runnerIdleMinutes + 3, 30) * 60 * 1000,
-  ).toISOString();
-
-  // Codespace は作成されたがランナーが一度も接続していない場合、何も実行されない
-  // まま残り、次の tick でまた新しい Codespace が作成され続ける。
-  // 起動タイムアウトを過ぎたら失敗として確定し、割り当て済みジョブも終了させる。
-  const runnerStartCutoff = new Date(
-    now - config.runnerStartTimeoutMinutes * 60 * 1000,
-  ).toISOString();
-  const { data: neverStartedSessions } = await admin
+  // 終了したジョブに紐づくセッションを閉じる。GitHub Actions は使い捨てなので、
+  // セッション自体を停止する処理は不要だが、放置すると同時実行枠が埋まる。
+  const { data: candidateSessions } = await admin
     .from('cloud_sessions')
-    .select('*')
-    .eq('status', 'starting')
-    .lt('runner_seen_at', runnerStartCutoff)
-    .limit(20);
-
-  for (const session of (neverStartedSessions || []) as Row[]) {
-    const codespaceName = String(session.codespace_name || '');
-    const remoteRunner = isActionsRunner(codespaceName);
-    const nowIso = new Date(now).toISOString();
-    const codespaceInfo = codespaceName && !remoteRunner
-      ? await getCodespace(config.githubToken, codespaceName).catch(() => null)
-      : null;
-    const diagnostics = [
-      `execution_backend: ${remoteRunner ? 'actions' : 'codespaces'}`,
-      `codespace_state: ${codespaceInfo?.state || 'unknown'}`,
-      `codespace_last_used_at: ${codespaceInfo?.lastUsedAt || '-'}`,
-      `devcontainer_path: ${codespaceInfo?.devcontainerPath || '-'}`,
-      `machine: ${codespaceInfo?.machine || '-'}`,
-      `runner_seen_at: ${session.runner_seen_at || '-'}`,
-    ].join('\n');
-    const { data: assignedJobs } = codespaceName
-      ? await admin
-          .from('cloud_jobs')
-          .select('*')
-          .eq('codespace_name', codespaceName)
-          .in('status', ['provisioning', 'running'])
-      : { data: [] as Row[] };
-
-    for (const job of (assignedJobs || []) as Row[]) {
-      const startedAt = job.started_at ? new Date(String(job.started_at)).getTime() : now;
-      await finalizeCloudJob({
-        jobId: String(job.id),
-        status: 'failed',
-        summary: '作業環境が起動しなかったため停止しました。',
-        detail: diagnostics,
-        error: 'runner_start_timeout',
-        usage: {
-          runtimeSeconds: Math.max(0, Math.floor((now - startedAt) / 1000)),
-          inputTokens: num(job.input_tokens),
-          outputTokens: num(job.output_tokens),
-          costUsd: num(job.cost_usd),
-        },
-        stopCodespaceAfter: true,
-      });
-    }
-
-    if (codespaceName && config.githubToken && !remoteRunner && (assignedJobs || []).length === 0) {
-      try {
-        await stopCodespace(config.githubToken, codespaceName);
-      } catch (error) {
-        console.error('Stopping never-started codespace failed:', error);
-      }
-    }
-
-    await admin
-      .from('cloud_sessions')
-      .update({
-        status: 'failed',
-        current_job_id: null,
-        stopped_at: nowIso,
-        updated_at: nowIso,
-      })
-      .eq('id', session.id);
-    stopped += 1;
-  }
-
-  const [{ data: activeSessions }, { data: reviewSessions }] = await Promise.all([
-    admin
-      .from('cloud_sessions')
-      .select('*')
-      .in('status', ['starting', 'idle', 'busy'])
-      .lt('runner_seen_at', sessionStaleCutoff)
-      .limit(20),
-    admin
-      .from('cloud_sessions')
-      .select('*')
-      .eq('status', 'review')
-      .lt('runner_seen_at', reviewStaleCutoff)
-      .limit(20),
-  ]);
-  const staleSessions = [...(activeSessions || []), ...(reviewSessions || [])];
-
-  for (const session of staleSessions as Row[]) {
-    const codespaceName = String(session.codespace_name || '');
-    if (codespaceName && config.githubToken && !isActionsRunner(codespaceName)) {
-      try {
-        await stopCodespace(config.githubToken, codespaceName);
-      } catch (error) {
-        console.error('Stopping stale cloud session failed:', error);
-      }
-    }
+    .select('id, status, runner_seen_at')
+    .in('status', ['starting', 'idle', 'busy', 'stopping'])
+    .limit(100);
+  const startCutoff = now - config.runnerStartTimeoutMinutes * 60 * 1000;
+  const busyCutoff = now
+    - (config.jobMaxMinutes + config.jobTimeoutGraceMinutes) * 60 * 1000;
+  for (const session of (candidateSessions || []) as Row[]) {
+    const seenAt = session.runner_seen_at ? Date.parse(String(session.runner_seen_at)) : NaN;
+    const cutoff = String(session.status) === 'busy' ? busyCutoff : startCutoff;
+    if (Number.isFinite(seenAt) && seenAt >= cutoff) continue;
+    const closedAt = new Date().toISOString();
     await admin
       .from('cloud_sessions')
       .update({
         status: 'stopped',
         current_job_id: null,
-        stopped_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        stopped_at: closedAt,
+        updated_at: closedAt,
       })
       .eq('id', session.id);
     stopped += 1;
   }
 
-  const stoppingCutoff = new Date(now - 5 * 60 * 1000).toISOString();
-  const { data: stoppingSessions } = await admin
-    .from('cloud_sessions')
-    .select('*')
-    .eq('status', 'stopping')
-    .lt('updated_at', stoppingCutoff)
-    .limit(20);
-
-  for (const session of (stoppingSessions || []) as Row[]) {
-    const codespaceName = String(session.codespace_name || '');
-    if (codespaceName && config.githubToken && !isActionsRunner(codespaceName)) {
-      try {
-        await stopCodespace(config.githubToken, codespaceName);
-        await admin
-          .from('cloud_sessions')
-          .update({
-            status: 'stopped',
-            stopped_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', session.id);
-        stopped += 1;
-      } catch (error) {
-        console.error('Retrying stop for cloud session failed:', error);
-      }
-    }
-  }
-
   return stopped;
-}
-
-export async function claimCloudJob(
-  codespaceName: string,
-): Promise<{ job: Row | null; sessionActive: boolean }> {
-  const admin = createAdminClient();
-  const now = new Date().toISOString();
-  const { data: session } = await admin
-    .from('cloud_sessions')
-    .select('*')
-    .eq('codespace_name', codespaceName)
-    .maybeSingle();
-
-  if (!session) {
-    return { job: null, sessionActive: false };
-  }
-
-  const sessionRow = session as Row;
-  if (['review', 'stopping', 'stopped', 'failed'].includes(String(sessionRow.status))) {
-    return { job: null, sessionActive: false };
-  }
-  if (sessionRow.status === 'busy' && sessionRow.current_job_id) {
-    return { job: null, sessionActive: true };
-  }
-
-  await admin
-    .from('cloud_sessions')
-    .update({ runner_seen_at: now, updated_at: now })
-    .eq('id', sessionRow.id);
-
-  let job: Row | null = null;
-  const { data: provisioning } = await admin
-    .from('cloud_jobs')
-    .select('*')
-    .eq('codespace_name', codespaceName)
-    .eq('status', 'provisioning')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (provisioning) {
-    const { data: updated } = await admin
-      .from('cloud_jobs')
-      .update({
-        status: 'running',
-        heartbeat_at: now,
-        started_at: (provisioning as Row).started_at ?? now,
-      })
-      .eq('id', (provisioning as Row).id)
-      .eq('status', 'provisioning')
-      .select()
-      .maybeSingle();
-    job = (updated as Row | null) ?? null;
-  } else {
-    for (let attempt = 0; attempt < 3 && !job; attempt += 1) {
-      const { data: candidate } = await admin
-        .from('cloud_jobs')
-        .select('id')
-        .eq('status', 'queued')
-        .order('priority', { ascending: false })
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (!candidate) break;
-
-      const { data: updated } = await admin
-        .from('cloud_jobs')
-        .update({
-          status: 'running',
-          codespace_name: codespaceName,
-          codespace_url: sessionRow.codespace_url || null,
-          heartbeat_at: now,
-          started_at: now,
-        })
-        .eq('id', candidate.id)
-        .eq('status', 'queued')
-        .select()
-        .maybeSingle();
-      job = (updated as Row | null) ?? null;
-    }
-  }
-
-  if (!job) {
-    await admin
-      .from('cloud_sessions')
-      .update({
-        status: ['starting', 'busy'].includes(String(sessionRow.status))
-          ? 'idle'
-          : sessionRow.status,
-        current_job_id: null,
-        runner_seen_at: now,
-        updated_at: now,
-      })
-      .eq('id', sessionRow.id);
-    return { job: null, sessionActive: true };
-  }
-
-  await admin
-    .from('cloud_sessions')
-    .update({
-      status: 'busy',
-      current_job_id: job.id,
-      runner_seen_at: now,
-      updated_at: now,
-    })
-    .eq('id', sessionRow.id);
-
-  return { job, sessionActive: true };
 }
 
 export type ClaimSpecificJobResult =
@@ -1343,7 +765,6 @@ export async function claimCloudJobById(
     .update({
       status: 'running',
       codespace_name: runnerId,
-      codespace_url: null,
       heartbeat_at: now,
       started_at: job.started_at ?? now,
     })
@@ -1356,7 +777,6 @@ export async function claimCloudJobById(
   await admin.from('cloud_sessions').upsert(
     {
       codespace_name: runnerId,
-      codespace_url: null,
       status: 'busy',
       current_job_id: jobId,
       runner_seen_at: now,
@@ -1479,14 +899,12 @@ export interface FinalizeInput {
   branch?: string;
   securityFlags?: string[];
   blockedStage?: CloudBlockedStage;
-  keepCodespace?: boolean;
   usage: {
     runtimeSeconds: number;
     inputTokens: number;
     outputTokens: number;
     costUsd: number;
   };
-  stopCodespaceAfter?: boolean;
 }
 
 export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null> {
@@ -1552,7 +970,6 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
     paymentStatus = result.shortfall > 0 ? 'shortfall' : 'charged';
   }
 
-  const config = getCloudConfig();
   const technicalError = input.error?.slice(0, 2000) || null;
   const userFacingError = input.status === 'blocked'
     ? '安全確認のため停止しました。管理者の確認をお待ちください。'
@@ -1567,40 +984,15 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
     new Set([...existingFlags, ...(input.securityFlags || []).map((flag) => String(flag))]),
   ).slice(0, 20);
 
-  const codespaceName = String(job.codespace_name || '');
-  // GitHub Actions の実行は使い捨てなので、終了時に停止処理は不要。
-  const remoteRunner = isActionsRunner(codespaceName);
-  const { data: sessionData } = codespaceName
+  const runnerId = String(job.codespace_name || '');
+  const { data: sessionData } = runnerId
     ? await admin
         .from('cloud_sessions')
         .select('*')
-        .eq('codespace_name', codespaceName)
+        .eq('codespace_name', runnerId)
         .maybeSingle()
     : { data: null };
   const session = (sessionData as Row | null) ?? null;
-  const sessionExists = Boolean(session);
-  const fatal = ['sandbox_setup_failed', 'opencode_failed', 'repo_reset_failed', 'runner_start_timeout'].includes(String(input.error || ''));
-  const alreadyStopped = session
-    ? ['stopping', 'stopped', 'failed'].includes(String(session.status))
-    : false;
-  const requestedKeep = Boolean(input.keepCodespace)
-    && config.keepReviewCodespace
-    && sessionExists
-    && !remoteRunner
-    && (input.status === 'blocked' || input.status === 'failed');
-  const shouldStop = remoteRunner
-    || !sessionExists
-    || alreadyStopped
-    || ['timed_out', 'cancelled'].includes(input.status)
-    || (input.status === 'failed' && fatal)
-    // 自動実行の app_issue は、変更なし・型エラーなどで終わった場合に
-    // Codespace を idle のまま残すと次の課題で起動し続けるため即停止する。
-    // 管理者が明示的に保持を要求した場合だけ review として残す。
-    || (job.kind === 'app_issue'
-      && ['failed', 'blocked'].includes(input.status)
-      && !requestedKeep);
-  const keepReview = requestedKeep && !shouldStop;
-  const sessionStatus = keepReview ? 'review' : shouldStop ? 'stopped' : 'idle';
 
   const runtimeSeconds = Math.max(
     Math.max(0, Math.round(input.usage.runtimeSeconds)),
@@ -1634,7 +1026,6 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
       ...(job.kind === 'user_task' && technicalError ? { technical_error: technicalError } : {}),
       security_flags: securityFlags,
       blocked_stage: input.blockedStage || (input.status === 'blocked' ? 'diff' : null),
-      keep_codespace: keepReview,
       stage: 'done',
       usage: {
         runtime_seconds: runtimeSeconds,
@@ -1700,26 +1091,15 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
     });
   }
 
-  let stopFailed = false;
-  if (shouldStop && codespaceName && config.githubToken && !remoteRunner) {
-    try {
-      await stopCodespace(config.githubToken, codespaceName);
-    } catch (error) {
-      stopFailed = true;
-      console.error('Stopping codespace failed:', error);
-    }
-  }
-
-  if (session && codespaceName) {
-    const effectiveStatus = stopFailed ? 'stopping' : sessionStatus;
+  if (session) {
     await admin
       .from('cloud_sessions')
       .update({
-        status: effectiveStatus,
+        status: 'stopped',
         current_job_id: null,
         runner_seen_at: now,
         updated_at: now,
-        ...(effectiveStatus === 'stopped' ? { stopped_at: now } : {}),
+        stopped_at: now,
       })
       .eq('id', session.id);
   }
@@ -1740,7 +1120,7 @@ export type RequeueCloudJobResult =
 
 /**
  * 終了済みのジョブを待機状態に戻し、もう一度実行できるようにする。
- * Codespace は停止済みで途中成果は残らないため、同じ依頼内容を最初から実行し直す。
+ * 実行環境は使い捨てで途中成果は残らないため、同じ依頼内容を最初から実行し直す。
  * 前回の結果と使用量は metadata.previous_attempts に退避し、今回分の課金と混ざらないようにする。
  */
 export async function requeueCloudJob(jobId: string, actorId?: string | null): Promise<RequeueCloudJobResult> {
@@ -1809,7 +1189,6 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
     pr_url: null,
     branch,
     codespace_name: null,
-    codespace_url: null,
     started_at: null,
     heartbeat_at: null,
     finished_at: null,
@@ -1865,7 +1244,7 @@ export async function runCloudTick(appUrl?: string): Promise<Record<string, numb
   }
 
   try {
-    await recordRunnerReadiness();
+    await recordActionsReadiness();
   } catch (error) {
     errors.push(`readiness: ${error instanceof Error ? error.message : String(error)}`);
   }

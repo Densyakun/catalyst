@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { isAdminUser } from '@/lib/admin';
-import { getCloudConfig } from '@/lib/cloud/config';
-import { stopCodespace } from '@/lib/cloud/github';
 
 export async function POST(
   req: NextRequest,
@@ -90,7 +88,6 @@ export async function POST(
       .maybeSingle();
     if (error) throw error;
 
-    const config = getCloudConfig();
     if (job.codespace_name) {
       await admin
         .from('cloud_sessions')
@@ -101,13 +98,6 @@ export async function POST(
           updated_at: now,
         })
         .eq('codespace_name', String(job.codespace_name));
-    }
-    if (job.codespace_name && config.githubToken) {
-      try {
-        await stopCodespace(config.githubToken, String(job.codespace_name));
-      } catch (stopError) {
-        console.error('Decision stop codespace error:', stopError);
-      }
     }
 
     return NextResponse.json({ ok: true, job: updated });

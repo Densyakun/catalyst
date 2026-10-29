@@ -353,9 +353,6 @@ function JobRow({
   const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
   const canRetry = ['failed', 'cancelled', 'timed_out'].includes(job.status);
   const canReview = isAdmin && job.status === 'blocked' && job.blocked_stage === 'precheck';
-  const showCodespace = isAdmin
-    && Boolean(job.codespace_url)
-    && (['provisioning', 'running'].includes(job.status) || job.keep_codespace === true);
   const Icon = job.status === 'succeeded'
     ? CheckCircle2
     : job.status === 'failed'
@@ -506,7 +503,7 @@ function JobRow({
         </details>
       )}
 
-      {(job.pr_url || (isAdmin && job.issue_url) || showCodespace) && (
+      {(job.pr_url || (isAdmin && job.issue_url)) && (
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
           {job.pr_url && (
             <a href={job.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>
@@ -516,11 +513,6 @@ function JobRow({
           {isAdmin && job.issue_url && (
             <a href={job.issue_url} target="_blank" rel="noreferrer" style={linkStyle}>
               <ExternalLink size={11} /> 課題
-            </a>
-          )}
-          {showCodespace && job.codespace_url && (
-            <a href={job.codespace_url} target="_blank" rel="noreferrer" style={linkStyle}>
-              <ExternalLink size={11} /> 作業環境を確認
             </a>
           )}
         </div>

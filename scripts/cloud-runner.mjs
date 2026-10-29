@@ -12,9 +12,7 @@ let RUNNER_TOKEN = process.env.CATALYST_CLOUD_RUNNER_TOKEN || '';
 const OPENCODE_KEY = process.env.OPENCODE_GO_API_KEY || '';
 const PROVIDER_ID = process.env.OPENCODE_PROVIDER_ID || 'opencode-go';
 const MODEL = process.env.OPENCODE_MODEL || 'opencode-go/deepseek-v4.1-flash';
-const CODESPACE_NAME = process.env.CODESPACE_NAME || '';
-// GitHub Actions 実行時は Codespace 名の代わりに一意なランナーIDを使う。
-const RUNNER_ID = process.env.CATALYST_RUNNER_ID || CODESPACE_NAME;
+const RUNNER_ID = process.env.CATALYST_RUNNER_ID || '';
 const JOB_ID = process.env.CATALYST_JOB_ID || '';
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || '';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
@@ -145,8 +143,12 @@ if (!RUNNER_TOKEN && !JOB_ID) {
   console.error('CATALYST_CLOUD_RUNNER_TOKEN が必要です');
   process.exit(1);
 }
+if (!JOB_ID) {
+  console.error('CATALYST_JOB_ID が必要です');
+  process.exit(1);
+}
 if (!RUNNER_ID) {
-  console.error('CODESPACE_NAME または CATALYST_RUNNER_ID が見つかりません');
+  console.error('CATALYST_RUNNER_ID が必要です');
   process.exit(1);
 }
 
@@ -422,7 +424,7 @@ async function preparePrivileged(job) {
   if (!/^[0-9a-f-]{36}$/i.test(String(job.id))) {
     throw new Error('job id is invalid');
   }
-  // app_issue は Codespace の専用ユーザーとして実行する。
+  // app_issue は sandbox とは別の専用ユーザーとして実行する。
   // 認証とモデルカタログは通常の HOME をそのまま使う（--pure と権限設定で分離する）。
   const home = os.homedir();
   await writeOpencodeHome(home, null);
@@ -1000,7 +1002,6 @@ async function reportJob(job, payload) {
 
   await api('/api/cloud/agent/report', {
     job_id: job.id,
-    codespace_name: RUNNER_ID,
     status: payload.status,
     summary: payload.summary,
     detail: payload.detail,
@@ -1009,7 +1010,6 @@ async function reportJob(job, payload) {
     branch: payload.branch || '',
     security_flags: payload.securityFlags || [],
     blocked_stage: payload.blockedStage,
-    keep_codespace: Boolean(payload.keepCodespace),
     usage: {
       runtime_seconds: runtimeSeconds,
       input_tokens: payload.usage?.inputTokens || 0,
@@ -1259,7 +1259,6 @@ async function processJob(job) {
       error: 'secret_detected',
       securityFlags: unique(reviewFlags),
       blockedStage: 'diff',
-      keepCodespace: false,
       usage,
     });
     return;
@@ -1273,7 +1272,6 @@ async function processJob(job) {
       error: 'unsafe_change',
       securityFlags: unique(reviewFlags),
       blockedStage: 'diff',
-      keepCodespace: true,
       usage,
     });
     return;
@@ -1292,7 +1290,6 @@ async function processJob(job) {
       error: 'protected_path_change',
       securityFlags: unique(reviewFlags),
       blockedStage: 'diff',
-      keepCodespace: false,
       usage,
     });
     return;
@@ -1306,7 +1303,6 @@ async function processJob(job) {
       error: 'diff_too_large',
       securityFlags: unique([...reviewFlags, '変更量が上限を超えています']),
       blockedStage: 'diff',
-      keepCodespace: true,
       usage,
     });
     return;
@@ -1323,7 +1319,6 @@ async function processJob(job) {
       detail: [typeOutput, '', review.diffText.slice(0, 8000)].join('\n'),
       error: 'typecheck_failed',
       securityFlags: unique(reviewFlags),
-      keepCodespace: true,
       usage,
     });
     return;
@@ -1337,7 +1332,6 @@ async function processJob(job) {
       error: 'auto_push_disabled',
       securityFlags: unique([...reviewFlags, '自動push無効']),
       blockedStage: 'diff',
-      keepCodespace: true,
       usage,
     });
     return;
@@ -1352,7 +1346,6 @@ async function processJob(job) {
       error: 'unsafe_git_config',
       securityFlags: unique([...reviewFlags, gitSafety]),
       blockedStage: 'diff',
-      keepCodespace: true,
       usage,
     });
     return;
@@ -1384,7 +1377,6 @@ async function processJob(job) {
         error: 'protected_path_change',
         securityFlags: unique(reviewFlags),
         blockedStage: 'diff',
-        keepCodespace: false,
         usage,
       });
     } catch (error) {
@@ -1401,7 +1393,6 @@ async function processJob(job) {
         error: 'protected_path_change',
         securityFlags: unique(reviewFlags),
         blockedStage: 'diff',
-        keepCodespace: false,
         usage,
       });
     }
@@ -1426,7 +1417,6 @@ async function processJob(job) {
       summary: '変更の公開に失敗しました。',
       detail: review.diffText.slice(0, 8000),
       error: message.slice(0, 2000),
-      keepCodespace: true,
       usage,
     });
   }
@@ -1462,84 +1452,21 @@ async function main() {
     console.error('GITHUB_TOKEN が見つかりません');
   }
 
-  // GitHub Actions では 1 実行 = 1 ジョブ。指定されたジョブだけを取得して終了する。
-  if (JOB_ID) {
-    if (!RUNNER_TOKEN) {
-      await bootstrapRunner();
-    }
-    console.log(`Runner ${RUNNER_ID}: claiming job ${JOB_ID}`);
-    const claimed = await api('/api/cloud/agent/claim', {
-      job_id: JOB_ID,
-      runner_id: RUNNER_ID,
-    });
-    if (!claimed.job) {
-      console.log(`Job ${JOB_ID} is not claimable (${claimed.reason || 'unknown'})`);
-      return;
-    }
-    await processJob(claimed.job);
+  if (!RUNNER_TOKEN) {
+    await bootstrapRunner();
+  }
+
+  console.log(`Runner ${RUNNER_ID}: claiming job ${JOB_ID}`);
+  const claimed = await api('/api/cloud/agent/claim', {
+    job_id: JOB_ID,
+    runner_id: RUNNER_ID,
+  });
+  if (!claimed.job) {
+    console.log(`Job ${JOB_ID} is not claimable (${claimed.reason || 'unknown'})`);
     return;
   }
 
-  let idleMinutes = 15;
-  let idleSince = Date.now();
-  let inactiveChecks = 0;
-  let consecutiveApiFailures = 0;
-
-  while (true) {
-    let response;
-    try {
-      response = await api('/api/cloud/agent/next', { codespace_name: CODESPACE_NAME });
-      consecutiveApiFailures = 0;
-    } catch (error) {
-      consecutiveApiFailures += 1;
-      console.error(`Failed to get next job (attempt ${consecutiveApiFailures}):`, error);
-      // 一時的な API 障害で即終了すると、Codespace だけが起動したまま
-      // 実装が行われない。バックオフして再試行し、長期障害時だけ再起動する。
-      if (consecutiveApiFailures >= 20) {
-        console.error('Giving up after repeated API failures; restarting runner');
-        process.exit(1);
-      }
-      await sleep(Math.min(60000, 3000 * consecutiveApiFailures));
-      continue;
-    }
-
-    if (typeof response.runner_idle_minutes === 'number') {
-      idleMinutes = response.runner_idle_minutes;
-    }
-
-    if (!response.job) {
-      if (response.session_active === false) {
-        // セッション行の反映遅れで誤って終了しないよう、しばらく猶予を持つ。
-        inactiveChecks += 1;
-        if (inactiveChecks >= 18) {
-          console.log('Session is no longer active');
-          break;
-        }
-        await sleep(10000);
-        continue;
-      }
-      inactiveChecks = 0;
-      if (Date.now() - idleSince >= idleMinutes * 60 * 1000) {
-        console.log(`No jobs for ${idleMinutes} minutes; stopping the codespace`);
-        try {
-          await api('/api/cloud/agent/stop', { codespace_name: CODESPACE_NAME });
-        } catch (error) {
-          console.error('Failed to stop session:', error);
-        }
-        break;
-      }
-      await sleep(10000);
-      continue;
-    }
-
-    idleSince = Date.now();
-    try {
-      await processJob(response.job);
-    } catch (error) {
-      console.error('Unexpected job processing failure:', error);
-    }
-    idleSince = Date.now();
-  }
+  await processJob(claimed.job);
 }
 
 main().catch((error) => {

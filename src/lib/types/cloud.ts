@@ -27,7 +27,6 @@ export interface CloudJob {
   issue_number: number | null;
   issue_url: string | null;
   pr_url: string | null;
-  codespace_url: string | null;
   funded_by: CloudFunding;
   payment_status: CloudPaymentStatus;
   credits_estimated: number;
@@ -42,7 +41,6 @@ export interface CloudJob {
   blocked_stage?: CloudBlockedStage | null;
   security_flags?: string[];
   human_approved?: boolean;
-  keep_codespace?: boolean;
   progress_stage?: string | null;
   created_at: string;
   started_at: string | null;

@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
         model: job.model,
         max_minutes: job.max_minutes,
         stall_minutes: config.jobStallMinutes,
-        codespace_name: job.codespace_name,
         started_at: job.started_at,
         allow_push: config.autoPush,
         max_diff_lines: config.maxDiffLines,

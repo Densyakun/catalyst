@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { isAdminUser } from '@/lib/admin';
-import { getCloudConfig } from '@/lib/cloud/config';
-import { stopCodespace } from '@/lib/cloud/github';
 
 export async function DELETE(
   _req: NextRequest,
@@ -45,7 +43,6 @@ export async function DELETE(
       })
       .eq('id', id);
 
-    const config = getCloudConfig();
     if (job.codespace_name) {
       await admin
         .from('cloud_sessions')
@@ -56,13 +53,6 @@ export async function DELETE(
           updated_at: now,
         })
         .eq('codespace_name', String(job.codespace_name));
-    }
-    if (job.codespace_name && config.githubToken) {
-      try {
-        await stopCodespace(config.githubToken, String(job.codespace_name));
-      } catch (error) {
-        console.error('Cancel stop codespace error:', error);
-      }
     }
 
     return NextResponse.json({ ok: true });

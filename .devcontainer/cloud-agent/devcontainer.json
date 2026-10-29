@@ -1,9 +1,0 @@
-{
-  "name": "Katalyse Cloud Agent",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
-  "remoteUser": "node",
-  "postCreateCommand": "npm ci || true",
-  "postStartCommand": "bash scripts/cloud-runner-supervisor.sh"
-}

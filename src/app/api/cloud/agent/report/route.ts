@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const jobId = typeof body?.job_id === 'string' ? body.job_id : '';
-    const codespaceName = typeof body?.codespace_name === 'string' ? body.codespace_name : '';
     const status = ALLOWED.includes(body?.status) ? (body.status as CloudJobStatus) : 'failed';
 
     if (!jobId) {
@@ -30,14 +29,11 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient();
     const { data: job } = await admin
       .from('cloud_jobs')
-      .select('id, codespace_name, max_minutes')
+      .select('id, max_minutes')
       .eq('id', jobId)
       .maybeSingle();
     if (!job) {
       return NextResponse.json({ error: 'job not found' }, { status: 404 });
-    }
-    if (codespaceName && job.codespace_name && codespaceName !== job.codespace_name) {
-      return NextResponse.json({ error: 'codespace mismatch' }, { status: 403 });
     }
 
     const usage = body?.usage ?? {};
@@ -59,14 +55,12 @@ export async function POST(req: NextRequest) {
       branch: typeof body?.branch === 'string' ? body.branch : undefined,
       securityFlags,
       blockedStage,
-      keepCodespace: body?.keep_codespace === true,
       usage: {
         runtimeSeconds: Math.min(maxSeconds, toNumber(usage.runtime_seconds)),
         inputTokens: toNumber(usage.input_tokens),
         outputTokens: toNumber(usage.output_tokens),
         costUsd: toNumber(usage.cost_usd),
       },
-      stopCodespaceAfter: true,
     });
 
     return NextResponse.json({

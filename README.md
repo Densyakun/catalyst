@@ -81,7 +81,7 @@ OPENAI_MODEL_SOLVING=gpt-4o-mini      # 任意（未指定なら OPENAI_MODEL）
 Cloudflare Workers 上では10分おきの Cron を直接持てないため、`workers/cloud-scheduler` を別 Worker としてデプロイします。
 
 1. アプリ側の環境変数（Cloudflare の Variables and Secrets）を設定する
-   - `GITHUB_CODESPACES_TOKEN`（リポジトリ操作用。`repo` スコープ。Codespaces も使う場合は `codespace` も付与）
+   - `CLOUD_GITHUB_TOKEN`（GitHub API 用。`repo` スコープ。旧名 `GITHUB_CODESPACES_TOKEN` も使用可）
    - `CLOUD_GITHUB_REPO`（`owner/repo`）
    - `CLOUD_CRON_SECRET` / `CLOUD_RUNNER_TOKEN`
    - `OPENCODE_MODEL`（例: `opencode-go/deepseek-v4.1-flash`）
@@ -89,11 +89,8 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
 2. GitHub の Repository Settings → Actions → General で
    「Allow GitHub Actions to create and approve pull requests」を有効にする
    （クラウドランナーは bootstrap で受け取った PAT で PR を作るため必須ではありませんが、
-   有効にしておくと GitHub Actions のトークンだけでも PR を作れます）
-3. Codespace で実行する場合のみ、Repository Settings → Codespaces → Secrets に以下を登録する
-   - `CATALYST_APP_URL` / `CATALYST_CLOUD_RUNNER_TOKEN`
-   - `OPENCODE_GO_API_KEY` / `OPENCODE_MODEL`
-4. スケジューラ Worker をデプロイする
+    有効にしておくと GitHub Actions のトークンだけでも PR を作れます）
+3. スケジューラ Worker をデプロイする
    ```bash
    cd workers/cloud-scheduler
    npx wrangler secret put CLOUD_APP_URL
@@ -104,11 +101,10 @@ Cloudflare Workers 上では10分おきの Cron を直接持てないため、`w
 
 10分おきに `/api/cloud/cron` が実行され、アプリの GitHub Issue（`CLOUD_AUTO_ISSUE_LABEL` で絞り込み可能）がクラウド作業環境で解決されます。ユーザーは「クラウド」タブから任意の作業を依頼できます。実行時間とトークン使用量からクレジットが計算されます。
 
-### 実行基盤（GitHub Actions / Codespaces）
-- 既定（`CLOUD_EXECUTION_BACKEND=actions`）は **GitHub Actions** で実行します。パブリックリポジトリは実行時間が無料のため、Codespaces の予算上限に達していても作業を継続できます。
+### 実行基盤（GitHub Actions）
+- **GitHub Actions** で実行します。パブリックリポジトリは実行時間が無料です。
 - アプリが `.github/workflows/cloud-job.yml` を `repository_dispatch` で起動し、リポジトリ変数 `KATALYST_APP_URL` を自動登録します。ランナーの認証情報と LLM 設定は、実行開始後にワークフロー実行IDを照合して `/api/cloud/agent/bootstrap` から渡します（リポジトリに保存しません）。
-- `CLOUD_EXECUTION_BACKEND=auto` にすると Actions を優先し、開始できなかった場合だけ Codespace にフォールバックします。`codespaces` で従来動作になります。
-- Codespace 作成が予算超過（HTTP 402）で拒否された場合は、理由をジョブに記録して無駄な起動を止めます。
+- ワークフローは 1 実行 = 1 ジョブです。ジョブが終わると環境は破棄されるため、停止処理や再利用の管理は不要です。
 
 ### Cloudflare の PR ビルド（プレビュー）
 PR ごとに Workers Builds が走る場合、既定の Preview コマンド `npx wrangler preview` は
@@ -142,19 +138,12 @@ PR ごとに Workers Builds が走る場合、既定の Preview コマンド `np
 - 実行中は「受付 / リポジトリ準備 / 作業環境の準備 / AIが実装中 / 変更を検証中 / 公開準備中」の進捗がジョブに記録されます。
 - AI からの応答が `CLOUD_JOB_STALL_MINUTES`（既定 8 分）途絶えた場合は、時間切れを待たずに理由付きで終了します。
 - ランナーが途中で落ちても、それまでのトークン使用量と失敗理由がジョブに残ります（`supabase_migration_v17.sql` を適用してください）。
-- ランナーは Codespace 起動時に常駐し、異常終了した場合だけ自動で再起動します（`scripts/cloud-runner-supervisor.sh`）。
 
-### Codespace の再利用と停止
-- 1つの Codespace を複数ジョブで使い回します。10分おきのチェックごとに新しい環境は作りません。
-- 起動中の環境がある場合は、キューのジョブを同じ環境で順番に処理します。
-- ジョブがなくなって `CLOUD_RUNNER_IDLE_MINUTES`（既定15分）経過すると停止します。10分間隔のチェックをまたいで再利用できるよう、少し長めの猶予を持たせています。
-- 停止を早めたい場合は `CLOUD_RUNNER_IDLE_MINUTES` を短くしてください。ただしチェック間隔との関係で新しい Codespace が増える場合があります。
-- 安全確認待ちの環境を管理者確認用に残す場合は `CLOUD_KEEP_REVIEW_CODESPACE=true` にします（既定 `false`。既定では残さず、キューが空になった後のアイドル時間で停止します）。
-- アプリ課題の実行前には、前のジョブの変更を破棄して既定ブランチへ戻します（ジョブ間の混入防止）。
-- 同じ Issue の自動実行は直近7日で `CLOUD_AUTO_MAX_ATTEMPTS`（既定2回）までです。上限に達した Issue は `blocked` になり、Codespace を起動しません。内容を確認して再実行する場合は、該当ジョブを承認するか `cloud_jobs` の該当行を整理してください。
+### 実行の流れ
+- スケジューラは `CLOUD_MAX_CONCURRENT` の範囲で、待機中のジョブを GitHub Actions にディスパッチします。
+- 同じ Issue の自動実行は直近7日で `CLOUD_AUTO_MAX_ATTEMPTS`（既定2回）までです。上限に達した Issue は `blocked` になり、再実行しません。内容を確認して再実行する場合は、該当ジョブを承認するか `cloud_jobs` の該当行を整理してください。
 - `CLOUD_AUTO_SKIP_LABELS`（既定 `wontfix,duplicate,question,discussion,invalid,stale`）に含まれるラベルの Issue は自動実装の対象外です。
-- Codespace 作成後 `CLOUD_RUNNER_START_TIMEOUT_MINUTES`（既定15分）以内にランナーが接続しない場合は起動失敗として停止します。直近1時間の起動失敗が `CLOUD_MAX_START_FAILURES_PER_HOUR`（既定2回）に達すると、原因を修正するまで新規 Codespace の作成を止めます。
-- アプリ課題が変更なし・型エラーなどで終了した場合は、管理者が保持を指定していない限り Codespace を即停止します（idle のまま残して次の課題で起動し続けるのを防ぐため）。
+- `CLOUD_RUNNER_START_TIMEOUT_MINUTES`（既定15分）以内にランナーがジョブを取得しない場合は起動失敗として記録します。
 
 ## 7. 決済（Stripe）とクレジット購入
 
