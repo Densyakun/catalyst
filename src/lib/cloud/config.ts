@@ -83,6 +83,9 @@ export function getCloudConfig() {
     creditPer1kTokens: numberValue(process.env.CLOUD_CREDIT_PER_1K_TOKENS, 0.05),
     creditPerUsd: numberValue(process.env.CLOUD_CREDIT_PER_USD, 150),
     creditMarkup: numberValue(process.env.CLOUD_CREDIT_MARKUP, 1),
+    // プレビュー環境・失敗した実行・Stripe 手数料など、DB に記録できない
+    // 運営コストをクレジット請求に上乗せするための係数（%）。
+    creditOverheadPercent: numberValue(process.env.CLOUD_CREDIT_OVERHEAD_PERCENT, 0),
     estimateCredits: Math.max(1, numberValue(process.env.CLOUD_ESTIMATE_CREDITS, 20)),
     dailyLimit: Math.max(1, Math.floor(numberValue(process.env.CLOUD_USER_DAILY_LIMIT, 3))),
     autoUsePool: boolValue(process.env.CLOUD_AUTO_USE_POOL, false),

@@ -155,3 +155,46 @@ PR ごとに Workers Builds が走る場合、既定の Preview コマンド `np
 - `CLOUD_AUTO_SKIP_LABELS`（既定 `wontfix,duplicate,question,discussion,invalid,stale`）に含まれるラベルの Issue は自動実装の対象外です。
 - Codespace 作成後 `CLOUD_RUNNER_START_TIMEOUT_MINUTES`（既定15分）以内にランナーが接続しない場合は起動失敗として停止します。直近1時間の起動失敗が `CLOUD_MAX_START_FAILURES_PER_HOUR`（既定2回）に達すると、原因を修正するまで新規 Codespace の作成を止めます。
 - アプリ課題が変更なし・型エラーなどで終了した場合は、管理者が保持を指定していない限り Codespace を即停止します（idle のまま残して次の課題で起動し続けるのを防ぐため）。
+
+## 7. 決済（Stripe）とクレジット購入
+
+ユーザーがクレジットを購入できるようにします。決済は Stripe Checkout にリダイレクトし、
+Webhook で付与します。クレジットは残高（`user_balance`）に入り、任意で目的（`fund_purposes`）に紐付けられます。
+
+### セットアップ
+1. `supabase_migration_v18.sql` を適用する（`payments` / `stripe_events` / 付与・返金関数）。
+2. Cloudflare の Variables and Secrets に登録する
+   - `STRIPE_SECRET_KEY`
+   - `STRIPE_WEBHOOK_SECRET`
+   - `STRIPE_CREDIT_PACKS`（例: `[{"id":"starter","label":"スターター","amount_jpy":500,"credits":400}]`）
+   - 必要に応じて `BILLING_CREDITS_PER_YEN`（既定 `1`）
+3. Stripe の Webhook に `https://<本番URL>/api/billing/stripe/webhook` を登録する
+   - `checkout.session.completed`
+   - `checkout.session.async_payment_succeeded`
+   - `checkout.session.expired`
+   - `charge.refunded`
+4. ローカル確認は Stripe CLI で転送する
+   ```bash
+   stripe listen --forward-to localhost:3000/api/billing/stripe/webhook
+   ```
+
+### ユーザーと目的の紐付け
+- 購入は必ず `payments.user_id` に紐付きます。
+- 目的は **任意** です（すべてのユーザーが目的を持つわけではないため）。指定できるのは本人が所有する有効な目的だけです。
+- 目的を指定した購入も、クレジットは残高に入ります。目的は購入履歴の分類（`payments.purpose_id`）として残ります。
+  目的ごとの残高を分離したい場合は、目的資金からクラウド作業を支払う拡張を別途行います。
+
+### レート設定（プレビュー・運営コストを含める）
+- 本番とプレビューで DB を分けると、プレビュー側のコストは DB に記録できません。
+  そのため、**販売レートに運営コストを含める**必要があります。次の2つで調整できます。
+  - `BILLING_CREDITS_PER_YEN` を `1` 未満にする（例: `0.8`。1円で0.8クレジット）
+  - `STRIPE_CREDIT_PACKS` の `credits` を金額より少なくする（例: ¥500 → 400クレジット）
+- 既存ユーザーのクラウド利用には `CLOUD_CREDIT_OVERHEAD_PERCENT`（既定 `0`）を設定すると、
+  実行時間・トークンから計算したクレジットに上乗せできます（例: `30` で +30%）。
+- 実際の請求額（Portkey / opencode Zen）とクレジットの差は月次で確認し、レートを見直してください。
+
+### セキュリティ
+- Webhook は `Stripe-Signature` を HMAC-SHA256 で検証し、5分を超える古い署名は拒否します。
+- 付与・返金は SQL 関数内で `FOR UPDATE` し、同じ決済を二重に反映しません。
+- `payments` は本人のみ SELECT 可能（RLS）。付与・返金はサービスロールのみ実行できます。
+

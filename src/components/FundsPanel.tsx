@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle2,
+  CreditCard,
   Loader2,
   Plus,
   Send,
@@ -11,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { FundPurpose, FundsSnapshot, FundingSource } from '@/lib/types/funds';
+import type { BillingInfo, PaymentRecord } from '@/lib/types/billing';
 
 const SOURCE_LABEL: Record<FundingSource, string> = {
   purpose: '目的資金',
@@ -25,6 +27,13 @@ const TRANSACTION_LABEL: Record<string, string> = {
   spend: '支出',
   refund: '返金',
   allocation: '配分',
+};
+
+const PAYMENT_STATUS_LABEL: Record<PaymentRecord['status'], string> = {
+  pending: '処理中',
+  succeeded: '完了',
+  failed: '失敗',
+  refunded: '返金済み',
 };
 
 function parseNonNegative(value: string): number | null {
@@ -66,11 +75,30 @@ export default function FundsPanel({
   const [spendAmount, setSpendAmount] = useState('');
   const [spendNote, setSpendNote] = useState('');
 
+  const [billing, setBilling] = useState<BillingInfo | null>(null);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [selectedPackId, setSelectedPackId] = useState('');
+  const [purchasePurposeId, setPurchasePurposeId] = useState('');
+  const [purchasing, setPurchasing] = useState(false);
+  const [purchaseMessage, setPurchaseMessage] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const payment = new URLSearchParams(window.location.search).get('payment');
+    if (payment === 'success') {
+      return '決済を受け付けました。残高への反映まで少しお待ちください。';
+    }
+    if (payment === 'cancel') return '決済をキャンセルしました。';
+    return '';
+  });
+
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/funds');
-      if (res.ok) {
-        const next = await res.json() as FundsSnapshot;
+      const [fundsRes, billingRes, paymentsRes] = await Promise.all([
+        fetch('/api/funds'),
+        fetch('/api/billing/packs'),
+        fetch('/api/billing/payments'),
+      ]);
+      if (fundsRes.ok) {
+        const next = await fundsRes.json() as FundsSnapshot;
         setData(next);
         if (next.purposes.length > 0) {
           setSelectedPurposeId((current) => current || next.purposes[0].id);
@@ -79,6 +107,17 @@ export default function FundsPanel({
             setSpendPurposeId((current) => current || firstOwned.id);
           }
         }
+      }
+      if (billingRes.ok) {
+        const next = await billingRes.json() as BillingInfo;
+        setBilling(next);
+        if (next.packs.length > 0) {
+          setSelectedPackId((current) => current || next.packs[0].id);
+        }
+      }
+      if (paymentsRes.ok) {
+        const next = await paymentsRes.json() as { payments?: PaymentRecord[] };
+        setPayments(next.payments || []);
       }
     } catch (error) {
       console.error('Funds load error:', error);
@@ -98,6 +137,43 @@ export default function FundsPanel({
       cancelled = true;
     };
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const payment = new URLSearchParams(window.location.search).get('payment');
+    if (payment !== 'success') return;
+    const timer = window.setTimeout(() => { void load(); }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const purchase = async () => {
+    if (!selectedPackId) {
+      setPurchaseMessage('購入するプランを選択してください。');
+      return;
+    }
+    setPurchasing(true);
+    setPurchaseMessage('');
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pack_id: selectedPackId,
+          purpose_id: purchasePurposeId || undefined,
+        }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || '決済を開始できませんでした');
+      if (typeof result.url !== 'string' || !result.url) {
+        throw new Error('決済ページを開けませんでした');
+      }
+      window.location.href = result.url;
+    } catch (error) {
+      console.error('Billing checkout error:', error);
+      setPurchaseMessage(error instanceof Error ? error.message : String(error));
+      setPurchasing(false);
+    }
+  };
 
   const createPurpose = async () => {
     const name = purposeName.trim();
@@ -257,6 +333,83 @@ export default function FundsPanel({
         </div>
       </div>
 
+      {billing && (
+        <div style={{ marginBottom: '0.6rem', paddingTop: '0.55rem', borderTop: '1px solid var(--glass-border)' }}>
+          <p style={{ margin: '0 0 0.35rem', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <CreditCard size={11} /> クレジットを購入
+          </p>
+          {!billing.available ? (
+            <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+              購入機能は現在準備中です。
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div style={{ display: 'grid', gap: '0.3rem' }}>
+                {billing.packs.map((pack) => {
+                  const selected = selectedPackId === pack.id;
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => setSelectedPackId(pack.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.4rem 0.5rem',
+                        background: selected ? 'rgba(99, 102, 241, 0.16)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${selected ? 'rgba(99, 102, 241, 0.5)' : 'var(--glass-border)'}`,
+                        borderRadius: '6px',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: '0.72rem',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {pack.label}
+                      </span>
+                      <span style={{ marginLeft: 'auto', flexShrink: 0, color: 'var(--text-secondary)' }}>
+                        ¥{pack.amount_jpy.toLocaleString()} / {pack.credits.toLocaleString()}クレジット
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {ownedPurposes.length > 0 && (
+                <select
+                  value={purchasePurposeId}
+                  onChange={(event) => setPurchasePurposeId(event.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">目的に紐づけない</option>
+                  {ownedPurposes.map((purpose) => (
+                    <option key={purpose.id} value={purpose.id}>
+                      {purpose.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => void purchase()}
+                disabled={purchasing || !selectedPackId}
+                style={buttonStyle(purchasing || !selectedPackId)}
+              >
+                {purchasing ? <Loader2 size={11} className="animate-spin" /> : <CreditCard size={11} />}
+                購入する
+              </button>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
+                購入したクレジットは残高に反映されます。目的を選ぶと購入履歴に目的が記録されます（目的は任意です）。
+              </p>
+              {purchaseMessage && (
+                <p style={{ margin: 0, fontSize: '0.68rem', color: '#f59e0b' }}>{purchaseMessage}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {plan && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.35rem', marginBottom: '0.6rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
           <TrendingUp size={12} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
@@ -395,6 +548,31 @@ export default function FundsPanel({
 
       {message && (
         <p style={{ margin: '0.45rem 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{message}</p>
+      )}
+
+      {payments.length > 0 && (
+        <details style={{ marginTop: '0.6rem' }}>
+          <summary style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            購入履歴
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.35rem' }}>
+            {payments.slice(0, 5).map((payment) => {
+              const purposeName = purposes.find((purpose) => purpose.id === payment.purpose_id)?.name;
+              return (
+                <div key={payment.id} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                  <CreditCard size={10} style={{ flexShrink: 0 }} />
+                  <span>
+                    {PAYMENT_STATUS_LABEL[payment.status] || payment.status}
+                    {purposeName ? ` / ${purposeName}` : ''}
+                  </span>
+                  <span style={{ marginLeft: 'auto', color: 'white' }}>
+                    ¥{Number(payment.amount).toLocaleString()} / {Number(payment.credits).toLocaleString()}クレジット
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </details>
       )}
 
       {(data?.transactions.length || 0) > 0 && (

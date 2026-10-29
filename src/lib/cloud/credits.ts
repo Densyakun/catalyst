@@ -17,7 +17,9 @@ export function calculateCloudCredits(usage: CloudUsage): number {
     Math.max(0, usage.costUsd) * config.creditPerUsd,
     (totalTokens / 1000) * config.creditPer1kTokens,
   );
-  const total = (timeCredits + tokenCredits) * config.creditMarkup;
+  // プレビュー環境や課金手数料など、DB に残らない運営コストを上乗せする。
+  const overhead = 1 + Math.max(0, config.creditOverheadPercent) / 100;
+  const total = (timeCredits + tokenCredits) * config.creditMarkup * overhead;
   if (total <= 0) return 0;
   return Math.max(1, Math.round(total * 10) / 10);
 }
