@@ -15,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { CloudJob, CloudJobStatus, CloudOverview } from '@/lib/types/cloud';
+import MobileWorkspace from '@/components/MobileWorkspace';
 
 const STATUS_META: Record<CloudJobStatus, { label: string; color: string; bg: string }> = {
   queued: { label: '待機中', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' },
@@ -189,6 +190,8 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
           かかった時間とトークン使用量に応じてクレジットを消費します。
         </p>
       </section>
+
+      <MobileWorkspace />
 
       {message && (
         <div className="glass-panel" style={{ padding: '0.6rem 0.8rem', fontSize: '0.78rem', border: '1px solid var(--glass-border)' }}>
