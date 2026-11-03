@@ -239,12 +239,13 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     }
   };
 
-  const renderJobs = (jobs: CloudJob[]) => (
+  const renderJobs = (jobs: CloudJob[], compact = false) => (
     <div style={{ display: 'grid', gap: '0.45rem' }}>
       {jobs.map((job) => (
         <JobRow
           key={job.id}
           job={job}
+          compact={compact}
           isAdmin={Boolean(data?.is_admin)}
           cancelling={cancelling === job.id}
           deciding={deciding === job.id}
@@ -422,7 +423,16 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
           ) : (
             <div style={{ display: 'grid', gap: '0.45rem' }}>
               {groups.map((group) => (
-                <IssueGroup key={group.key} group={group} renderJobs={renderJobs} />
+                <IssueGroup
+                  key={group.key}
+                  group={group}
+                  isAdmin={data.is_admin}
+                  cancelling={cancelling}
+                  retrying={retrying}
+                  onCancel={(job) => void cancel(job)}
+                  onRetry={(job) => void retry(job)}
+                  renderJobs={(jobs) => renderJobs(jobs, true)}
+                />
               ))}
             </div>
           )}
@@ -434,54 +444,99 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
 
 function IssueGroup({
   group,
+  isAdmin,
+  cancelling,
+  retrying,
+  onCancel,
+  onRetry,
   renderJobs,
 }: {
   group: CloudJobGroup;
+  isAdmin: boolean;
+  cancelling: string | null;
+  retrying: string | null;
+  onCancel: (job: CloudJob) => void;
+  onRetry: (job: CloudJob) => void;
   renderJobs: (jobs: CloudJob[]) => React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(group.hasActive);
   const meta = STATUS_META[group.status] ?? STATUS_META.failed;
+  const activeJob = group.jobs.find(isActiveJob) ?? null;
+  const retryJob = group.jobs.find((job) => ['failed', 'cancelled', 'timed_out'].includes(job.status)) ?? null;
+  const canRetry = !activeJob && retryJob !== null;
+  const isAppIssue = group.jobs.some((job) => job.kind === 'app_issue');
 
   return (
     <div style={{ border: '1px solid var(--glass-border)', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}>
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.4rem',
-          padding: '0.6rem 0.7rem',
-          background: 'none',
-          border: 'none',
-          color: 'white',
-          textAlign: 'left',
-          cursor: 'pointer',
-        }}
-      >
-        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        <Layers size={13} style={{ color: meta.color, flexShrink: 0 }} />
-        <span style={{ fontSize: '0.78rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {group.issueNumber != null ? `#${group.issueNumber} ` : ''}
-          {group.title}
-        </span>
-        {group.jobs.length > 1 && (
-          <span style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', flexShrink: 0 }}>{group.jobs.length}件</span>
-        )}
-        <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg, flexShrink: 0 }}>
-          {meta.label}
-        </span>
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 0.7rem 0.15rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          style={{
+            flex: 1,
+            minWidth: 'min(200px, 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            padding: 0,
+            background: 'none',
+            border: 'none',
+            color: 'white',
+            textAlign: 'left',
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <Layers size={13} style={{ color: meta.color, flexShrink: 0 }} />
+          <span style={{ fontSize: '0.78rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {group.issueNumber != null ? `#${group.issueNumber} ` : ''}
+            {group.title}
+          </span>
+          {isAppIssue && isAdmin && (
+            <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', flexShrink: 0 }}>アプリ改善</span>
+          )}
+          {group.jobs.length > 1 && (
+            <span style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', flexShrink: 0 }}>{group.jobs.length}件</span>
+          )}
+          <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg, flexShrink: 0 }}>
+            {meta.label}
+          </span>
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexShrink: 0 }}>
+          {group.issueUrl && (
+            <a href={group.issueUrl} target="_blank" rel="noreferrer" style={linkStyle}>
+              <ExternalLink size={11} /> 課題
+            </a>
+          )}
+          {activeJob && (
+            <button
+              type="button"
+              onClick={() => onCancel(activeJob)}
+              disabled={cancelling === activeJob.id}
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.65rem', padding: 0, cursor: 'pointer' }}
+            >
+              {cancelling === activeJob.id ? '停止中...' : 'キャンセル'}
+            </button>
+          )}
+          {canRetry && retryJob && (
+            <button
+              type="button"
+              onClick={() => onRetry(retryJob)}
+              disabled={retrying === retryJob.id}
+              title="もう一度実行します"
+              style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
+            >
+              <RefreshCw size={11} className={retrying === retryJob.id ? 'animate-spin' : undefined} />
+              {retrying === retryJob.id ? '受付中...' : '再実行'}
+            </button>
+          )}
+        </div>
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', padding: '0 0.7rem 0.5rem 2.15rem', fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
         {group.repo && <span>{group.repo}</span>}
         <span>最終更新 {formatDate(group.latestAt)}</span>
-        {group.issueUrl && (
-          <a href={group.issueUrl} target="_blank" rel="noreferrer" style={linkStyle}>
-            <ExternalLink size={11} /> イシューを開く
-          </a>
-        )}
       </div>
 
       {expanded && <div style={{ padding: '0 0.7rem 0.7rem' }}>{renderJobs(group.jobs)}</div>}
@@ -491,6 +546,7 @@ function IssueGroup({
 
 function JobRow({
   job,
+  compact = false,
   isAdmin,
   cancelling,
   deciding,
@@ -500,6 +556,7 @@ function JobRow({
   onRetry,
 }: {
   job: CloudJob;
+  compact?: boolean;
   isAdmin: boolean;
   cancelling: boolean;
   deciding: boolean;
@@ -535,13 +592,15 @@ function JobRow({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
         <Icon size={13} style={{ color: meta.color, flexShrink: 0 }} />
-        <span style={{ fontSize: '0.8rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {job.title}
-        </span>
-        {job.kind === 'app_issue' && isAdmin && (
+        {!compact && (
+          <span style={{ fontSize: '0.8rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {job.title}
+          </span>
+        )}
+        {!compact && job.kind === 'app_issue' && isAdmin && (
           <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>アプリ改善</span>
         )}
-        <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg }}>
+        <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg, marginLeft: compact ? 'auto' : undefined }}>
           {meta.label}
         </span>
         {isAdmin && job.status === 'running' && job.progress_stage && (
@@ -549,7 +608,7 @@ function JobRow({
             {STAGE_LABELS[job.progress_stage] ?? job.progress_stage}
           </span>
         )}
-        {active && (
+        {active && !compact && (
           <button
             type="button"
             onClick={onCancel}
@@ -559,7 +618,7 @@ function JobRow({
             {cancelling ? '停止中...' : 'キャンセル'}
           </button>
         )}
-        {canRetry && (
+        {canRetry && !compact && (
           <button
             type="button"
             onClick={onRetry}
@@ -662,14 +721,14 @@ function JobRow({
         </details>
       )}
 
-      {(job.pr_url || (isAdmin && job.issue_url)) && (
+      {(job.pr_url || (!compact && isAdmin && job.issue_url)) && (
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
           {job.pr_url && (
             <a href={job.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>
               <ExternalLink size={11} /> {job.status === 'blocked' ? '確認用の下書きPRを見る' : '変更内容を見る'}
             </a>
           )}
-          {isAdmin && job.issue_url && (
+          {!compact && isAdmin && job.issue_url && (
             <a href={job.issue_url} target="_blank" rel="noreferrer" style={linkStyle}>
               <ExternalLink size={11} /> 課題
             </a>
