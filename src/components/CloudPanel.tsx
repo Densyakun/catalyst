@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Cloud,
   Coins,
   ExternalLink,
+  Layers,
   Loader2,
   Play,
   RefreshCw,
@@ -15,6 +18,71 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { CloudJob, CloudJobStatus, CloudOverview } from '@/lib/types/cloud';
+
+const ACTIVE_STATUSES: CloudJobStatus[] = ['queued', 'provisioning', 'running', 'blocked'];
+
+function isActiveJob(job: CloudJob): boolean {
+  return ACTIVE_STATUSES.includes(job.status);
+}
+
+function jobIssueKey(job: CloudJob): string {
+  if (job.kind === 'app_issue') {
+    if (job.repo && job.issue_number != null) return `${job.repo}#${job.issue_number}`;
+    if (job.issue_url) return `url:${job.issue_url}`;
+    if (job.issue_number != null) return `issue:${job.issue_number}`;
+  }
+  return `job:${job.id}`;
+}
+
+function stripIssuePrefix(title: string): string {
+  return title.replace(/^\[#\d+\]\s*/, '').trim() || title;
+}
+
+interface CloudJobGroup {
+  key: string;
+  issueNumber: number | null;
+  issueUrl: string | null;
+  repo: string | null;
+  title: string;
+  jobs: CloudJob[];
+  latestAt: string;
+  status: CloudJobStatus;
+  hasActive: boolean;
+}
+
+function groupCloudJobsByIssue(jobs: CloudJob[]): CloudJobGroup[] {
+  const map = new Map<string, CloudJob[]>();
+  for (const job of jobs) {
+    const key = jobIssueKey(job);
+    const list = map.get(key);
+    if (list) list.push(job);
+    else map.set(key, [job]);
+  }
+
+  const groups: CloudJobGroup[] = [];
+  for (const [key, list] of map) {
+    const sorted = [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const latest = sorted[0];
+    const active = sorted.filter(isActiveJob);
+    const status = active.length > 0 ? active[0].status : latest.status;
+    groups.push({
+      key,
+      issueNumber: latest.issue_number,
+      issueUrl: latest.issue_url,
+      repo: latest.repo,
+      title: latest.kind === 'app_issue' ? stripIssuePrefix(latest.title) : latest.title,
+      jobs: sorted,
+      latestAt: latest.created_at,
+      status,
+      hasActive: active.length > 0,
+    });
+  }
+
+  return groups.sort((a, b) => {
+    if (a.hasActive !== b.hasActive) return a.hasActive ? -1 : 1;
+    return new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime();
+  });
+}
 
 const STATUS_META: Record<CloudJobStatus, { label: string; color: string; bg: string }> = {
   queued: { label: '待機中', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' },
@@ -64,6 +132,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   const [deciding, setDeciding] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [view, setView] = useState<'history' | 'issue'>('history');
 
   const load = useCallback(async () => {
     try {
@@ -91,6 +160,8 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     () => data?.jobs.find((job) => ['queued', 'provisioning', 'running', 'blocked'].includes(job.status)) ?? null,
     [data],
   );
+
+  const groups = useMemo(() => groupCloudJobsByIssue(data?.jobs ?? []), [data]);
 
   const submit = async () => {
     if (!title.trim() || !prompt.trim() || submitting) return;
@@ -167,6 +238,24 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       setDeciding(null);
     }
   };
+
+  const renderJobs = (jobs: CloudJob[]) => (
+    <div style={{ display: 'grid', gap: '0.45rem' }}>
+      {jobs.map((job) => (
+        <JobRow
+          key={job.id}
+          job={job}
+          isAdmin={Boolean(data?.is_admin)}
+          cancelling={cancelling === job.id}
+          deciding={deciding === job.id}
+          retrying={retrying === job.id}
+          onCancel={() => void cancel(job)}
+          onDecide={(action) => void decide(job, action)}
+          onRetry={() => void retry(job)}
+        />
+      ))}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -298,34 +387,104 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
 
       {data && data.jobs.length > 0 && (
         <div className="glass-panel" style={{ padding: '0.8rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
             <h3 style={{ fontSize: '0.85rem', margin: 0 }}>最近の作業</h3>
-            <button
-              type="button"
-              onClick={() => void load()}
-              title="再読み込み"
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-secondary)', padding: 0, display: 'flex' }}
-            >
-              <RefreshCw size={13} />
-            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+              <button
+                type="button"
+                onClick={() => setView('history')}
+                style={viewButtonStyle(view === 'history')}
+                aria-pressed={view === 'history'}
+              >
+                <Clock3 size={12} /> 履歴
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('issue')}
+                style={viewButtonStyle(view === 'issue')}
+                aria-pressed={view === 'issue'}
+              >
+                <Layers size={12} /> イシューごと
+              </button>
+              <button
+                type="button"
+                onClick={() => void load()}
+                title="再読み込み"
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', padding: '0.1rem', display: 'flex', marginLeft: '0.2rem' }}
+              >
+                <RefreshCw size={13} />
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'grid', gap: '0.45rem' }}>
-            {data.jobs.map((job) => (
-              <JobRow
-                key={job.id}
-                job={job}
-                isAdmin={data.is_admin}
-                cancelling={cancelling === job.id}
-                deciding={deciding === job.id}
-                retrying={retrying === job.id}
-                onCancel={() => void cancel(job)}
-                onDecide={(action) => void decide(job, action)}
-                onRetry={() => void retry(job)}
-              />
-            ))}
-          </div>
+
+          {view === 'history' ? (
+            renderJobs(data.jobs)
+          ) : (
+            <div style={{ display: 'grid', gap: '0.45rem' }}>
+              {groups.map((group) => (
+                <IssueGroup key={group.key} group={group} renderJobs={renderJobs} />
+              ))}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function IssueGroup({
+  group,
+  renderJobs,
+}: {
+  group: CloudJobGroup;
+  renderJobs: (jobs: CloudJob[]) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(group.hasActive);
+  const meta = STATUS_META[group.status] ?? STATUS_META.failed;
+
+  return (
+    <div style={{ border: '1px solid var(--glass-border)', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+          padding: '0.6rem 0.7rem',
+          background: 'none',
+          border: 'none',
+          color: 'white',
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
+      >
+        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <Layers size={13} style={{ color: meta.color, flexShrink: 0 }} />
+        <span style={{ fontSize: '0.78rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {group.issueNumber != null ? `#${group.issueNumber} ` : ''}
+          {group.title}
+        </span>
+        {group.jobs.length > 1 && (
+          <span style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', flexShrink: 0 }}>{group.jobs.length}件</span>
+        )}
+        <span style={{ fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: '999px', color: meta.color, background: meta.bg, flexShrink: 0 }}>
+          {meta.label}
+        </span>
+      </button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', padding: '0 0.7rem 0.5rem 2.15rem', fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
+        {group.repo && <span>{group.repo}</span>}
+        <span>最終更新 {formatDate(group.latestAt)}</span>
+        {group.issueUrl && (
+          <a href={group.issueUrl} target="_blank" rel="noreferrer" style={linkStyle}>
+            <ExternalLink size={11} /> イシューを開く
+          </a>
+        )}
+      </div>
+
+      {expanded && <div style={{ padding: '0 0.7rem 0.7rem' }}>{renderJobs(group.jobs)}</div>}
     </div>
   );
 }
@@ -523,6 +682,21 @@ function JobRow({
 
 function SparklesIcon() {
   return <Play size={14} className="text-accent" />;
+}
+
+function viewButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.2rem',
+    padding: '0.22rem 0.5rem',
+    fontSize: '0.65rem',
+    borderRadius: '999px',
+    border: '1px solid var(--glass-border)',
+    background: active ? 'var(--accent-color)' : 'rgba(255,255,255,0.04)',
+    color: active ? 'white' : 'var(--text-secondary)',
+    cursor: 'pointer',
+  };
 }
 
 const inputStyle: React.CSSProperties = {
