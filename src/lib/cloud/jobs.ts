@@ -48,10 +48,13 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
       : metadata.detail
         ? String(metadata.detail)
         : undefined,
+    technical_error: isAdmin && metadata.technical_error ? String(metadata.technical_error) : undefined,
     error: row.error ? String(row.error) : null,
     blocked_stage: isAdmin && metadata.blocked_stage
       ? (String(metadata.blocked_stage) as CloudBlockedStage)
       : null,
+    retry_exhausted: isAdmin ? metadata.retry_exhausted === true : undefined,
+    auto_attempts: isAdmin && metadata.attempts != null ? num(metadata.attempts) : undefined,
     security_flags: isAdmin && Array.isArray(metadata.security_flags)
       ? metadata.security_flags.map((flag) => String(flag)).slice(0, 20)
       : undefined,

@@ -37,8 +37,11 @@ export interface CloudJob {
   cost_usd?: number;
   result_summary: string | null;
   result_detail?: string | null;
+  technical_error?: string | null;
   error: string | null;
   blocked_stage?: CloudBlockedStage | null;
+  retry_exhausted?: boolean;
+  auto_attempts?: number;
   security_flags?: string[];
   human_approved?: boolean;
   progress_stage?: string | null;

@@ -569,6 +569,7 @@ function JobRow({
   const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
   const canRetry = ['failed', 'cancelled', 'timed_out'].includes(job.status);
   const canReview = isAdmin && job.status === 'blocked' && job.blocked_stage === 'precheck';
+  const retryExhausted = canReview && job.retry_exhausted === true;
   const Icon = job.status === 'succeeded'
     ? CheckCircle2
     : job.status === 'failed'
@@ -652,6 +653,12 @@ function JobRow({
         </p>
       )}
 
+      {isAdmin && job.technical_error && (
+        <p style={{ fontSize: '0.65rem', color: '#f87171', overflowWrap: 'anywhere' }}>
+          実行時のエラー: {job.technical_error}
+        </p>
+      )}
+
       {isAdmin && job.human_approved && (
         <p style={{ fontSize: '0.62rem', color: '#4ade80' }}>管理者承認済み</p>
       )}
@@ -672,31 +679,66 @@ function JobRow({
       )}
 
       {canReview && (
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => onDecide('approve')}
-            disabled={deciding}
-            className="btn-primary"
-            style={{ padding: '0.35rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-          >
-            <ShieldCheck size={12} /> {deciding ? '処理中...' : '内容を確認して承認'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onDecide('reject')}
-            disabled={deciding}
-            style={{
-              padding: '0.35rem 0.7rem',
-              fontSize: '0.7rem',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '8px',
-              color: 'white',
-            }}
-          >
-            却下
-          </button>
+        <div style={{ display: 'grid', gap: '0.45rem' }}>
+          <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+            {retryExhausted
+              ? `過去の失敗が自動実行の試行上限（${job.auto_attempts ?? 2}回）に達したため停止しています。原因を解消したあと「手動で実行」を押すと、この上限に関係なく実行できます。失敗すると自動実行は再び停止します。`
+              : '安全確認のため実行を停止しています。承認するとクラウド作業を再開し、却下すると実行せず終了します。'}
+            {!compact && job.issue_url && (
+              <>
+                {' '}
+                <a href={job.issue_url} target="_blank" rel="noreferrer" style={linkStyle}>
+                  <ExternalLink size={11} /> 課題の内容を確認
+                </a>
+              </>
+            )}
+          </p>
+          {job.prompt && (
+            <details>
+              <summary style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>依頼内容を確認</summary>
+              <pre
+                style={{
+                  marginTop: '0.3rem',
+                  padding: '0.45rem',
+                  background: 'rgba(0,0,0,0.2)',
+                  borderRadius: '6px',
+                  fontSize: '0.66rem',
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                }}
+              >
+                {job.prompt}
+              </pre>
+            </details>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => onDecide('approve')}
+              disabled={deciding}
+              className="btn-primary"
+              style={{ padding: '0.35rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <ShieldCheck size={12} /> {deciding ? '処理中...' : retryExhausted ? '手動で実行' : '承認して実行'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecide('reject')}
+              disabled={deciding}
+              style={{
+                padding: '0.35rem 0.7rem',
+                fontSize: '0.7rem',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '8px',
+                color: 'white',
+              }}
+            >
+              {retryExhausted ? '実行せず終了' : '却下して終了'}
+            </button>
+          </div>
         </div>
       )}
 
