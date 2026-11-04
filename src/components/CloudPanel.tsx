@@ -131,6 +131,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [starting, setStarting] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [view, setView] = useState<'history' | 'issue'>('history');
 
@@ -218,6 +219,23 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     }
   };
 
+  const startNow = async (job: CloudJob) => {
+    if (starting) return;
+    setStarting(job.id);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/cloud/jobs/${job.id}/start`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || '実行を開始できませんでした');
+      setMessage('実行を開始しました。');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStarting(null);
+    }
+  };
+
   const decide = async (job: CloudJob, action: 'approve' | 'reject') => {
     if (deciding) return;
     setDeciding(job.id);
@@ -230,7 +248,13 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || '操作に失敗しました');
-      setMessage(action === 'approve' ? '承認しました。順番に実行します。' : '却下しました。');
+      if (action === 'reject') {
+        setMessage('却下しました。');
+      } else if (json.started) {
+        setMessage('実行を開始しました。');
+      } else {
+        setMessage(`実行待ちに登録しました${json.dispatch_error ? `（${json.dispatch_error}）` : '。順番に実行します。'}`);
+      }
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -250,9 +274,11 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
           cancelling={cancelling === job.id}
           deciding={deciding === job.id}
           retrying={retrying === job.id}
+          starting={starting === job.id}
           onCancel={() => void cancel(job)}
           onDecide={(action) => void decide(job, action)}
           onRetry={() => void retry(job)}
+          onStart={() => void startNow(job)}
         />
       ))}
     </div>
@@ -429,8 +455,10 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
                   isAdmin={data.is_admin}
                   cancelling={cancelling}
                   retrying={retrying}
+                  starting={starting}
                   onCancel={(job) => void cancel(job)}
                   onRetry={(job) => void retry(job)}
+                  onStart={(job) => void startNow(job)}
                   renderJobs={(jobs) => renderJobs(jobs, true)}
                 />
               ))}
@@ -447,21 +475,26 @@ function IssueGroup({
   isAdmin,
   cancelling,
   retrying,
+  starting,
   onCancel,
   onRetry,
+  onStart,
   renderJobs,
 }: {
   group: CloudJobGroup;
   isAdmin: boolean;
   cancelling: string | null;
   retrying: string | null;
+  starting: string | null;
   onCancel: (job: CloudJob) => void;
   onRetry: (job: CloudJob) => void;
+  onStart: (job: CloudJob) => void;
   renderJobs: (jobs: CloudJob[]) => React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(group.hasActive);
   const meta = STATUS_META[group.status] ?? STATUS_META.failed;
   const activeJob = group.jobs.find(isActiveJob) ?? null;
+  const queuedJob = group.jobs.find((job) => job.status === 'queued') ?? null;
   const retryJob = group.jobs.find((job) => ['failed', 'cancelled', 'timed_out'].includes(job.status)) ?? null;
   const canRetry = !activeJob && retryJob !== null;
   const isAppIssue = group.jobs.some((job) => job.kind === 'app_issue');
@@ -509,6 +542,17 @@ function IssueGroup({
               <ExternalLink size={11} /> 課題
             </a>
           )}
+          {isAdmin && queuedJob && (
+            <button
+              type="button"
+              onClick={() => onStart(queuedJob)}
+              disabled={starting === queuedJob.id}
+              style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
+            >
+              <Play size={11} className={starting === queuedJob.id ? 'animate-pulse' : undefined} />
+              {starting === queuedJob.id ? '開始中...' : '今すぐ実行'}
+            </button>
+          )}
           {activeJob && (
             <button
               type="button"
@@ -551,9 +595,11 @@ function JobRow({
   cancelling,
   deciding,
   retrying,
+  starting,
   onCancel,
   onDecide,
   onRetry,
+  onStart,
 }: {
   job: CloudJob;
   compact?: boolean;
@@ -561,9 +607,11 @@ function JobRow({
   cancelling: boolean;
   deciding: boolean;
   retrying: boolean;
+  starting: boolean;
   onCancel: () => void;
   onDecide: (action: 'approve' | 'reject') => void;
   onRetry: () => void;
+  onStart: () => void;
 }) {
   const meta = STATUS_META[job.status] ?? STATUS_META.failed;
   const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
@@ -608,6 +656,17 @@ function JobRow({
           <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
             {STAGE_LABELS[job.progress_stage] ?? job.progress_stage}
           </span>
+        )}
+        {isAdmin && job.status === 'queued' && !compact && (
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={starting}
+            style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
+          >
+            <Play size={11} className={starting ? 'animate-pulse' : undefined} />
+            {starting ? '開始中...' : '今すぐ実行'}
+          </button>
         )}
         {active && !compact && (
           <button
@@ -743,7 +802,7 @@ function JobRow({
       )}
 
       {job.result_detail && job.result_detail !== job.result_summary && (
-        <details>
+        <details open={retryExhausted ? true : undefined}>
           <summary style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>詳細を見る</summary>
           <pre
             style={{

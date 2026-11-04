@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { isAdminUser } from '@/lib/admin';
+import { startCloudJobById } from '@/lib/cloud/jobs';
 
 export async function POST(
   req: NextRequest,
@@ -63,7 +64,23 @@ export async function POST(
         .maybeSingle();
       if (error) throw error;
 
-      return NextResponse.json({ ok: true, job: updated });
+      const dispatch = await startCloudJobById(id, req.nextUrl.origin).catch((dispatchError) => ({
+        ok: false,
+        runnerId: null,
+        error: dispatchError instanceof Error ? dispatchError.message : String(dispatchError),
+      }));
+      const { data: refreshed } = await admin
+        .from('cloud_jobs')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      return NextResponse.json({
+        ok: true,
+        job: refreshed ?? updated,
+        started: dispatch.ok,
+        dispatch_error: dispatch.ok ? null : dispatch.error,
+      });
     }
 
     if (['succeeded', 'failed', 'cancelled', 'timed_out'].includes(String(job.status))) {

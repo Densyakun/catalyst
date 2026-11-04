@@ -408,12 +408,13 @@ export async function enqueueAppIssues(): Promise<number> {
   const attemptWindowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: failureRows } = await admin
     .from('cloud_jobs')
-    .select('dedupe_key, finished_at, created_at')
+    .select('dedupe_key, finished_at, created_at, error, result_detail')
     .in('dedupe_key', dedupeKeys)
     .in('status', ['failed', 'timed_out'])
     .gte('created_at', attemptWindowStart);
   const failureCounts = new Map<string, number>();
   const lastFailureAt = new Map<string, number>();
+  const lastFailureInfo = new Map<string, { at: number; error: string; detail: string }>();
   for (const row of failureRows || []) {
     const key = String(row.dedupe_key);
     failureCounts.set(key, (failureCounts.get(key) || 0) + 1);
@@ -421,6 +422,13 @@ export async function enqueueAppIssues(): Promise<number> {
     const at = raw ? Date.parse(String(raw)) : NaN;
     if (!Number.isFinite(at)) continue;
     lastFailureAt.set(key, Math.max(lastFailureAt.get(key) || 0, at));
+    if (at >= (lastFailureInfo.get(key)?.at ?? -Infinity)) {
+      lastFailureInfo.set(key, {
+        at,
+        error: row.error ? String(row.error) : '',
+        detail: row.result_detail ? String(row.result_detail) : '',
+      });
+    }
   }
   const retryCooldownMs = config.autoRetryCooldownMinutes * 60 * 1000;
 
@@ -450,6 +458,18 @@ export async function enqueueAppIssues(): Promise<number> {
         ? '安全確認が必要な内容を検出したため停止しました。管理者の承認後に実行します。'
         : null;
 
+    const previousFailure = retryExhausted ? lastFailureInfo.get(dedupeKey) : undefined;
+    const previousFailureDetail = previousFailure
+      ? [
+          `前回の失敗: ${previousFailure.error || '不明なエラー'}`,
+          '',
+          previousFailure.detail,
+        ]
+          .filter(Boolean)
+          .join('\n')
+          .slice(0, 12000)
+      : null;
+
     const job = await insertJob({
       user_id: null,
       kind: 'app_issue',
@@ -469,6 +489,7 @@ export async function enqueueAppIssues(): Promise<number> {
       funded_by: config.autoUsePool ? 'donation_pool' : 'system',
       credits_estimated: config.estimateCredits,
       error,
+      result_detail: previousFailureDetail,
       metadata: {
         labels: issue.labels,
         security_flags: flags,
@@ -558,6 +579,32 @@ export async function startQueuedJobs(appUrl?: string): Promise<number> {
   }
 
   return started;
+}
+
+/** 承認直後などに、cron を待たず指定ジョブだけを開始する */
+export async function startCloudJobById(jobId: string, appUrl?: string): Promise<ActionsDispatchResult> {
+  const config = getCloudConfig();
+  const admin = createAdminClient();
+  const { data: job } = await admin
+    .from('cloud_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('status', 'queued')
+    .maybeSingle();
+  if (!job) {
+    return { ok: false, runnerId: null, error: '実行待ちの作業が見つかりません' };
+  }
+
+  const { count } = await admin
+    .from('cloud_sessions')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['starting', 'idle', 'busy']);
+  if ((count ?? 0) >= config.maxConcurrent) {
+    return { ok: false, runnerId: null, error: '同時実行数の上限に達しているため、順番に実行します' };
+  }
+
+  const runnerAppUrl = normalizeRunnerAppUrl(appUrl) || normalizeRunnerAppUrl(config.appUrl);
+  return dispatchActionsJob(config, job as Row, runnerAppUrl);
 }
 
 export async function sweepStaleJobs(): Promise<number> {
