@@ -600,7 +600,7 @@ export async function startCloudJobById(jobId: string, appUrl?: string): Promise
     .select('id', { count: 'exact', head: true })
     .in('status', ['starting', 'idle', 'busy']);
   if ((count ?? 0) >= config.maxConcurrent) {
-    return { ok: false, runnerId: null, error: '同時実行数の上限に達しているため、順番に実行します' };
+    return { ok: false, runnerId: null, error: '実行中の作業が終わり次第、すぐに開始します' };
   }
 
   const runnerAppUrl = normalizeRunnerAppUrl(appUrl) || normalizeRunnerAppUrl(config.appUrl);
@@ -1152,6 +1152,13 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
         stopped_at: now,
       })
       .eq('id', session.id);
+  }
+
+  // 実行枠が空いたら、次の待機ジョブをcronまで待たずに開始する
+  try {
+    await startQueuedJobs();
+  } catch (error) {
+    console.error('Starting queued cloud jobs after finalize failed:', error);
   }
 
   return (updated as Row | null) ?? job;
