@@ -1030,6 +1030,12 @@ async function reportJob(job, payload) {
       cost_usd: payload.usage?.costUsd || 0,
     },
   });
+
+  try {
+    await api('/api/cloud/agent/pump', {}, { attempts: 1, timeoutMs: 60000 });
+  } catch (error) {
+    console.error('Starting queued jobs after report failed:', error);
+  }
 }
 
 async function cleanupJobContext(job, context) {

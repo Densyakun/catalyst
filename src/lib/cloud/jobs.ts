@@ -1154,13 +1154,6 @@ export async function finalizeCloudJob(input: FinalizeInput): Promise<Row | null
       .eq('id', session.id);
   }
 
-  // 実行枠が空いたら、次の待機ジョブをcronまで待たずに開始する
-  try {
-    await startQueuedJobs();
-  } catch (error) {
-    console.error('Starting queued cloud jobs after finalize failed:', error);
-  }
-
   return (updated as Row | null) ?? job;
 }
 
