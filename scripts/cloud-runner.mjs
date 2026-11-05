@@ -1113,6 +1113,46 @@ async function preflightOpencode(job, context) {
   return model;
 }
 
+async function runLlmDiagnostic() {
+  const endpoint = `${LLM_BASE_URL}/chat/completions`;
+  const body = JSON.stringify({
+    model: LLM_MODEL,
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 1,
+  });
+  const variants = [
+    ['authorization', { Authorization: `Bearer ${LLM_API_KEY}` }],
+    ['x-portkey-api-key', { 'x-portkey-api-key': LLM_API_KEY }],
+    ['both', { Authorization: `Bearer ${LLM_API_KEY}`, 'x-portkey-api-key': LLM_API_KEY }],
+    ['x-portkey-virtual-key', { 'x-portkey-virtual-key': LLM_API_KEY }],
+    ['configured-headers', LLM_HEADERS],
+  ];
+
+  const lines = [
+    `base_url: ${LLM_BASE_URL}`,
+    `model: ${LLM_MODEL}`,
+    `api_key_length: ${LLM_API_KEY.length}`,
+    `configured_headers: ${Object.keys(LLM_HEADERS).join(', ') || '(none)'}`,
+  ];
+
+  for (const [name, headers] of variants) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body,
+        signal: AbortSignal.timeout(30000),
+      });
+      const text = (await res.text()).slice(0, 800);
+      lines.push(`${name}: ${res.status} ${text.replace(/\s+/g, ' ')}`);
+    } catch (error) {
+      lines.push(`${name}: ERROR ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 async function processJob(job) {
   console.log(`Job ${job.id} (${job.kind}): ${job.title}`);
   const startedAt = Date.now();
@@ -1122,6 +1162,17 @@ async function processJob(job) {
 
   try {
   await reportStage(job, 'claimed', emptyUsage);
+
+  if (job.metadata && job.metadata.llm_diagnostic === true) {
+    const detail = await runLlmDiagnostic();
+    await reportJob(job, {
+      status: 'succeeded',
+      summary: 'LLM接続診断を実行しました',
+      detail,
+      usage: emptyUsage,
+    });
+    return;
+  }
 
   if (job.kind === 'app_issue') {
     await reportStage(job, 'reset', emptyUsage);
