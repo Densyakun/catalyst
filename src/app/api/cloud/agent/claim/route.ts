@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
         allow_push: config.autoPush,
         max_diff_lines: config.maxDiffLines,
         sandbox_user: config.sandboxUser,
-        metadata: job.metadata || {},
       },
       reason: null,
     });
