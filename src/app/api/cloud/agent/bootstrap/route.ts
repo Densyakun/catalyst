@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeActionsBootstrap } from '@/lib/cloud/jobs';
 import { getCloudConfig } from '@/lib/cloud/config';
-import { getLlmBaseUrl, isOpenCodeBackend, resolveModelId } from '@/lib/ai/models';
+import { getLlmAuthHeaders, getLlmBaseUrl, isOpenCodeBackend, resolveModelId } from '@/lib/ai/models';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.OPENAI_API_KEY || '';
+    const llmHeaders = getLlmAuthHeaders();
     const payload = {
       runner_token: config.runnerToken,
       // 成果物の push / PR 作成に使う。GitHub Actions の GITHUB_TOKEN で作った
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
             api_key: apiKey,
             model: resolveModelId('solving'),
             opencode: isOpenCodeBackend(),
+            headers: llmHeaders ?? null,
             input_cost_per_1m: config.llmInputCostPer1M,
             output_cost_per_1m: config.llmOutputCostPer1M,
           }

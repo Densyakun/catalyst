@@ -209,8 +209,12 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     try {
       const res = await fetch(`/api/cloud/jobs/${job.id}/retry`, { method: 'POST' });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || '再実行できませんでした');
-      setMessage('再実行を受け付けました。順番に実行します。');
+      if (!res.ok) throw new Error(json.error || '実行できませんでした');
+      if (json.started) {
+        setMessage('実行を開始しました。');
+      } else {
+        setMessage(`実行待ちに登録しました${json.dispatch_error ? `（${json.dispatch_error}）` : '。順番に実行します。'}`);
+      }
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -550,7 +554,7 @@ function IssueGroup({
               style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
             >
               <Play size={11} className={starting === queuedJob.id ? 'animate-pulse' : undefined} />
-              {starting === queuedJob.id ? '開始中...' : '今すぐ実行'}
+              {starting === queuedJob.id ? '開始中...' : '実行'}
             </button>
           )}
           {activeJob && (
@@ -572,7 +576,7 @@ function IssueGroup({
               style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
             >
               <RefreshCw size={11} className={retrying === retryJob.id ? 'animate-spin' : undefined} />
-              {retrying === retryJob.id ? '受付中...' : '再実行'}
+              {retrying === retryJob.id ? '開始中...' : '実行'}
             </button>
           )}
         </div>
@@ -665,7 +669,7 @@ function JobRow({
             style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
           >
             <Play size={11} className={starting ? 'animate-pulse' : undefined} />
-            {starting ? '開始中...' : '今すぐ実行'}
+            {starting ? '開始中...' : '実行'}
           </button>
         )}
         {active && !compact && (
@@ -687,7 +691,7 @@ function JobRow({
             style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '0.65rem', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}
           >
             <RefreshCw size={11} className={retrying ? 'animate-spin' : undefined} />
-            {retrying ? '受付中...' : '再実行'}
+            {retrying ? '開始中...' : '実行'}
           </button>
         )}
       </div>
@@ -741,7 +745,7 @@ function JobRow({
         <div style={{ display: 'grid', gap: '0.45rem' }}>
           <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
             {retryExhausted
-              ? `過去の失敗が自動実行の試行上限（${job.auto_attempts ?? 2}回）に達したため停止しています。原因を解消したあと「手動で実行」を押すと、この上限に関係なく実行できます。失敗すると自動実行は再び停止します。`
+              ? `過去の失敗が自動実行の試行上限（${job.auto_attempts ?? 2}回）に達したため停止しています。原因を解消したあと「実行」を押すと、この上限に関係なくすぐに実行します。失敗すると自動実行は再び停止します。`
               : '安全確認のため実行を停止しています。承認するとクラウド作業を再開し、却下すると実行せず終了します。'}
             {!compact && job.issue_url && (
               <>
@@ -780,7 +784,7 @@ function JobRow({
               className="btn-primary"
               style={{ padding: '0.35rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
             >
-              <ShieldCheck size={12} /> {deciding ? '処理中...' : retryExhausted ? '手動で実行' : '承認して実行'}
+              <ShieldCheck size={12} /> {deciding ? '処理中...' : retryExhausted ? '実行' : '承認して実行'}
             </button>
             <button
               type="button"

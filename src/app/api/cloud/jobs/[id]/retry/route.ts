@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { isAdminUser } from '@/lib/admin';
-import { isCloudJobRetryable, requeueCloudJob, toCloudJob } from '@/lib/cloud/jobs';
+import { isCloudJobRetryable, requeueCloudJob, startCloudJobById, toCloudJob } from '@/lib/cloud/jobs';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -51,7 +51,18 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ ok: true, job: toCloudJob(result.job, isAdmin) });
+    const dispatch = await startCloudJobById(id, req.nextUrl.origin).catch((dispatchError) => ({
+      ok: false,
+      runnerId: null,
+      error: dispatchError instanceof Error ? dispatchError.message : String(dispatchError),
+    }));
+
+    return NextResponse.json({
+      ok: true,
+      job: toCloudJob(result.job, isAdmin),
+      started: dispatch.ok,
+      dispatch_error: dispatch.ok ? null : dispatch.error,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Cloud job retry error:', error);

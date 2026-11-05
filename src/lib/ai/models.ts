@@ -8,6 +8,7 @@ const DEFAULT_MODEL = 'gpt-4o-mini';
 
 const OPENCODE_BACKEND = 'opencode';
 const OPENCODE_SESSION_HEADER = 'x-opencode-session';
+const PORTKEY_BACKEND = 'portkey';
 
 function isValidValue(value: string | undefined): value is string {
   if (!value) return false;
@@ -42,6 +43,8 @@ export function resolveModelId(role: ModelRole): string {
  * 3. OPENAI_BASE_URL のホスト名に opencode を含む
  */
 export function isOpenCodeBackend(): boolean {
+  if (isPortkeyBackend()) return false;
+
   const backend = process.env.OPENAI_BACKEND?.trim().toLowerCase();
   if (backend) return backend === OPENCODE_BACKEND;
 
@@ -61,6 +64,17 @@ export function isOpenCodeBackend(): boolean {
   }
 }
 
+export function isPortkeyBackend(): boolean {
+  try {
+    if (new URL(getLlmBaseUrl()).hostname.toLowerCase().includes(PORTKEY_BACKEND)) {
+      return true;
+    }
+  } catch {
+    // URLが不正な場合は明示指定で判定する
+  }
+  return process.env.OPENAI_BACKEND?.trim().toLowerCase() === PORTKEY_BACKEND;
+}
+
 /**
  * 呼び出しごとのセッションIDを生成する。
  */
@@ -69,12 +83,40 @@ export function createOpenCodeSessionId(): string {
 }
 
 /**
- * opencode バックエンドのときだけ、動的セッションID付きのリクエストヘッダーを返す。
- * opencode 以外（OpenAI 公式など）では undefined を返し、ヘッダーを送らない。
+ * Portkey経由のときは、Portkey APIキーを x-portkey-api-key で送る。
+ * 仮想キーが設定されている場合は x-portkey-virtual-key を優先する。
+ */
+export function getLlmAuthHeaders(): Record<string, string> | undefined {
+  if (!isPortkeyBackend()) return undefined;
+
+  const headers: Record<string, string> = {};
+  const virtualKey = process.env.PORTKEY_VIRTUAL_KEY?.trim();
+  if (virtualKey) {
+    headers['x-portkey-virtual-key'] = virtualKey;
+  } else {
+    const portkeyKey = process.env.PORTKEY_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+    if (portkeyKey) headers['x-portkey-api-key'] = portkeyKey;
+  }
+
+  const provider = process.env.PORTKEY_PROVIDER?.trim();
+  if (provider) headers['x-portkey-provider'] = provider;
+  const config = process.env.PORTKEY_CONFIG?.trim();
+  if (config) headers['x-portkey-config'] = config;
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
+ * opencode のセッションヘッダーと Portkey の認証ヘッダーをまとめて返す。
  */
 export function getLlmRequestHeaders(): Record<string, string> | undefined {
-  if (!isOpenCodeBackend()) return undefined;
-  return { [OPENCODE_SESSION_HEADER]: createOpenCodeSessionId() };
+  const headers: Record<string, string> = {
+    ...(getLlmAuthHeaders() || {}),
+  };
+  if (isOpenCodeBackend()) {
+    headers[OPENCODE_SESSION_HEADER] = createOpenCodeSessionId();
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 /**

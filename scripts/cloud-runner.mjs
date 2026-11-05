@@ -24,11 +24,18 @@ let LLM_BASE_URL = (process.env.KATALYST_LLM_BASE_URL || '').replace(/\/+$/, '')
 let LLM_API_KEY = process.env.KATALYST_LLM_API_KEY || '';
 let LLM_MODEL = process.env.KATALYST_LLM_MODEL || '';
 let LLM_OPENCODE = process.env.KATALYST_LLM_OPENCODE === '1';
+let LLM_HEADERS = {};
+try {
+  const rawHeaders = process.env.KATALYST_LLM_HEADERS;
+  if (rawHeaders) LLM_HEADERS = JSON.parse(rawHeaders);
+} catch {
+  console.error('KATALYST_LLM_HEADERS is not valid JSON');
+}
 let LLM_INPUT_COST = Number(process.env.KATALYST_LLM_INPUT_COST_PER_1M) || 0;
 let LLM_OUTPUT_COST = Number(process.env.KATALYST_LLM_OUTPUT_COST_PER_1M) || 0;
 const LLM_SESSION_ID = `ses_${crypto.randomUUID().replace(/-/g, '')}`;
 
-function useCustomLlm() {
+function hasCustomLlm() {
   return !OPENCODE_KEY && Boolean(LLM_BASE_URL && LLM_API_KEY && LLM_MODEL);
 }
 
@@ -60,6 +67,9 @@ async function bootstrapRunner() {
     LLM_API_KEY = String(json.llm.api_key || '');
     LLM_MODEL = String(json.llm.model || '');
     LLM_OPENCODE = json.llm.opencode === true;
+    if (json.llm.headers && typeof json.llm.headers === 'object') {
+      LLM_HEADERS = { ...LLM_HEADERS, ...json.llm.headers };
+    }
     LLM_INPUT_COST = Number(json.llm.input_cost_per_1m) || 0;
     LLM_OUTPUT_COST = Number(json.llm.output_cost_per_1m) || 0;
   }
@@ -309,7 +319,7 @@ function opencodeConfig() {
     },
   };
 
-  if (useCustomLlm()) {
+  if (hasCustomLlm()) {
     config.provider = {
       katalyst: {
         npm: '@ai-sdk/openai-compatible',
@@ -317,7 +327,10 @@ function opencodeConfig() {
         options: {
           baseURL: LLM_BASE_URL,
           apiKey: LLM_API_KEY,
-          ...(LLM_OPENCODE ? { headers: { 'x-opencode-session': LLM_SESSION_ID } } : {}),
+          headers: {
+            ...LLM_HEADERS,
+            ...(LLM_OPENCODE ? { 'x-opencode-session': LLM_SESSION_ID } : {}),
+          },
         },
         models: {
           [LLM_MODEL]: {
@@ -335,7 +348,7 @@ function opencodeConfig() {
 }
 
 async function writeOpencodeHome(home, asUser) {
-  if (!OPENCODE_KEY && !useCustomLlm()) {
+  if (!OPENCODE_KEY && !hasCustomLlm()) {
     throw new Error(
       'OPENCODE_GO_API_KEY も KATALYST_LLM_* も設定されていません。LLM の認証設定を確認してください',
     );
@@ -432,7 +445,7 @@ async function preparePrivileged(job) {
 }
 
 function resolveModel(job) {
-  if (useCustomLlm()) return customModelId();
+  if (hasCustomLlm()) return customModelId();
   return job.model || MODEL;
 }
 
