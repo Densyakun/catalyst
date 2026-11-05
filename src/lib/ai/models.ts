@@ -43,8 +43,6 @@ export function resolveModelId(role: ModelRole): string {
  * 3. OPENAI_BASE_URL のホスト名に opencode を含む
  */
 export function isOpenCodeBackend(): boolean {
-  if (isPortkeyBackend()) return false;
-
   const backend = process.env.OPENAI_BACKEND?.trim().toLowerCase();
   if (backend) return backend === OPENCODE_BACKEND;
 
