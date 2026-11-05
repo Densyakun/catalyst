@@ -1163,7 +1163,7 @@ async function processJob(job) {
   try {
   await reportStage(job, 'claimed', emptyUsage);
 
-  if (job.metadata && job.metadata.llm_diagnostic === true) {
+  if ((job.metadata && job.metadata.llm_diagnostic === true) || job.title === 'LLM接続診断') {
     const detail = await runLlmDiagnostic();
     await reportJob(job, {
       status: 'succeeded',
