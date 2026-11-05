@@ -88,13 +88,10 @@ export function getLlmAuthHeaders(): Record<string, string> | undefined {
   if (!isPortkeyBackend()) return undefined;
 
   const headers: Record<string, string> = {};
+  const portkeyKey = process.env.PORTKEY_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  if (portkeyKey) headers['x-portkey-api-key'] = portkeyKey;
   const virtualKey = process.env.PORTKEY_VIRTUAL_KEY?.trim();
-  if (virtualKey) {
-    headers['x-portkey-virtual-key'] = virtualKey;
-  } else {
-    const portkeyKey = process.env.PORTKEY_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-    if (portkeyKey) headers['x-portkey-api-key'] = portkeyKey;
-  }
+  if (virtualKey) headers['x-portkey-virtual-key'] = virtualKey;
 
   const provider = process.env.PORTKEY_PROVIDER?.trim();
   if (provider) headers['x-portkey-provider'] = provider;
