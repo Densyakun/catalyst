@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 
 import { Suspense } from "react";
@@ -25,6 +26,24 @@ export default function RootLayout({
           <ActivityTracker />
         </Suspense>
         {children}
+        <footer
+          className="app-footer"
+          style={{
+            maxWidth: "1500px",
+            margin: "0 auto",
+            padding: "0.8rem 0.8rem 1.6rem",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem 1rem",
+            fontSize: "0.72rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <span>© Katalyse</span>
+          <Link href="/legal" style={{ color: "var(--text-secondary)" }}>運営者情報・規約・プライバシー</Link>
+          <Link href="/security" style={{ color: "var(--text-secondary)" }}>セキュリティ</Link>
+          <Link href="/legal#contact" style={{ color: "var(--text-secondary)" }}>お問い合わせ・批判の窓口</Link>
+        </footer>
         <FeedbackWidget />
       </body>
     </html>
