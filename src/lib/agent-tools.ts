@@ -1,8 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  appendGovernanceDecision,
+  assertCoreTransitionAllowed,
+  buildProposalGovernance,
+  resolveProposalGovernance,
+} from '@/lib/evolution/governance';
 import type {
   AgentContextProposal,
   AgentContextResponse,
   AgentReportRequest,
+  EvolutionGovernance,
+  ProposalCategory,
   ProposalStatus,
 } from '@/lib/types/evolution';
 
@@ -58,7 +66,7 @@ export async function reportResult(
 
   const { data: proposal, error: fetchError } = await supabase
     .from('evolution_proposals')
-    .select('id, user_id, title, rationale, proposed_change')
+    .select('id, user_id, title, category, status, rationale, target_area, proposed_change, signals')
     .eq('id', body.proposal_id)
     .eq('user_id', userId)
     .maybeSingle();
@@ -75,8 +83,36 @@ export async function reportResult(
   if (body.pr_url !== undefined) update.github_pr_url = body.pr_url;
   if (body.state !== undefined) update.external_state = body.state;
 
+  const governance = resolveProposalGovernance(proposal.signals, {
+    title: String(proposal.title ?? ''),
+    category: proposal.category as ProposalCategory,
+    rationale: proposal.rationale as string | null,
+    target_area: proposal.target_area as string | null,
+    proposed_change: proposal.proposed_change as string | null,
+  });
   const mappedStatus = mapStatus(body.state);
-  if (mappedStatus) update.status = mappedStatus;
+  if (mappedStatus) {
+    try {
+      assertCoreTransitionAllowed(governance, mappedStatus, 'agent');
+      update.status = mappedStatus;
+      update.signals = {
+        ...((proposal.signals as Record<string, unknown> | null) ?? {}),
+        governance: appendGovernanceDecision(governance, {
+          from: proposal.status as ProposalStatus,
+          to: mappedStatus,
+          actorId: userId,
+          actorType: 'agent',
+          actorRole: 'agent',
+          note: body.state ?? null,
+        }),
+      };
+    } catch {
+      update.signals = {
+        ...((proposal.signals as Record<string, unknown> | null) ?? {}),
+        governance,
+      };
+    }
+  }
 
   const { data: updated, error: updateError } = await supabase
     .from('evolution_proposals')
@@ -474,6 +510,15 @@ export async function createProposal(
   if (!categories.includes(category)) {
     throw new Error(`Invalid category. Must be one of: ${categories.join(', ')}`);
   }
+  const status = input.status ?? 'proposed';
+  const governance = buildProposalGovernance({
+    title: input.title,
+    category,
+    rationale: input.rationale,
+    target_area: input.target_area ?? null,
+    proposed_change: input.proposed_change ?? null,
+  });
+  assertCoreTransitionAllowed(governance, status, 'agent');
   const { data, error } = await supabase
     .from('evolution_proposals')
     .insert({
@@ -485,8 +530,8 @@ export async function createProposal(
       proposed_change: input.proposed_change ?? null,
       priority: input.priority ?? 0.5,
       evidence: input.evidence ?? [],
-      signals: {},
-      status: input.status ?? 'proposed',
+      signals: { governance },
+      status,
     })
     .select()
     .single();
@@ -504,9 +549,41 @@ export async function updateProposalStatus(
   if (!proposalId) throw new Error('proposal_id is required');
   if (!valid.includes(status)) throw new Error(`Invalid status. Must be one of: ${valid.join(', ')}`);
 
+  const { data: current, error: fetchError } = await supabase
+    .from('evolution_proposals')
+    .select('id, title, category, status, rationale, target_area, proposed_change, signals')
+    .eq('id', proposalId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!current) throw new Error('proposal not found');
+
+  const governance = resolveProposalGovernance(current.signals, {
+    title: String(current.title ?? ''),
+    category: current.category as ProposalCategory,
+    rationale: current.rationale as string | null,
+    target_area: current.target_area as string | null,
+    proposed_change: current.proposed_change as string | null,
+  });
+  assertCoreTransitionAllowed(governance, status, 'agent');
+  const nextGovernance: EvolutionGovernance = appendGovernanceDecision(governance, {
+    from: current.status as ProposalStatus,
+    to: status,
+    actorId: userId,
+    actorType: 'agent',
+    actorRole: 'agent',
+  });
+
   const { data, error } = await supabase
     .from('evolution_proposals')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+      signals: {
+        ...((current.signals as Record<string, unknown> | null) ?? {}),
+        governance: nextGovernance,
+      },
+    })
     .eq('id', proposalId)
     .eq('user_id', userId)
     .select()

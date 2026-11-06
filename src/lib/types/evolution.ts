@@ -45,6 +45,32 @@ export interface CreateFeedbackRequest {
 export type ProposalCategory = 'feature' | 'ux' | 'bug' | 'performance' | 'content';
 export type ProposalStatus = 'proposed' | 'approved' | 'in_progress' | 'implemented' | 'rejected';
 
+export type EvolutionLayer = 'interface' | 'semantic' | 'core';
+
+export type EvolutionActorType = 'human' | 'agent' | 'system';
+export type EvolutionActorRole = 'admin' | 'member' | 'agent' | 'system';
+
+export interface EvolutionGovernanceDecision {
+  from: ProposalStatus | null;
+  to: ProposalStatus;
+  layer: EvolutionLayer;
+  actor_id: string | null;
+  actor_type: EvolutionActorType;
+  actor_role: EvolutionActorRole;
+  note: string | null;
+  at: string;
+}
+
+export interface EvolutionGovernance {
+  layer: EvolutionLayer;
+  requires_human_approval: boolean;
+  auto_apply: boolean;
+  core_version: string | null;
+  forked_from: string | null;
+  history: EvolutionGovernanceDecision[];
+  last_decision: EvolutionGovernanceDecision | null;
+}
+
 export interface EvolutionProposal {
   id: string;
   user_id: string | null;
@@ -211,6 +237,7 @@ export interface EvolutionSignals {
 
 export type EvolutionSignalsSnapshot = Partial<EvolutionSignals['stats']> & {
   llmHealth?: LlmHealthReport;
+  governance?: EvolutionGovernance;
 };
 
 // ============================================================

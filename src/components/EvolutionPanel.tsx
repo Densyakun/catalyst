@@ -97,6 +97,20 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
     }
   };
 
+  const forkCore = async (id: string) => {
+    try {
+      const res = await fetch(`/api/evolution/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'fork' }),
+      });
+      if (!res.ok) throw new Error('failed');
+      await load();
+    } catch {
+      alert('コアのフォークに失敗しました');
+    }
+  };
+
   const remove = async (id: string) => {
     try {
       await fetch(`/api/evolution/${id}`, { method: 'DELETE' });
@@ -302,6 +316,13 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
                   根拠: {p.evidence.slice(0, 2).join(' / ')}
                 </p>
               )}
+              {p.signals?.governance && (
+                <p style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', opacity: 0.8, marginTop: '0.3rem' }}>
+                  レイヤー: {p.signals.governance.layer}
+                  {p.signals.governance.core_version ? ` ・ ${p.signals.governance.core_version}` : ''}
+                  {p.signals.governance.forked_from ? ' ・ フォーク' : ''}
+                </p>
+              )}
               {p.github_issue_url && (
                 <a
                   href={p.github_issue_url}
@@ -325,6 +346,11 @@ export default function EvolutionPanel({ refreshKey = 0 }: { refreshKey?: number
                   <button onClick={() => updateStatus(p.id, 'rejected')} style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger-color)', padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                     <X size={10} /> 却下
                   </button>
+                  {p.signals?.governance?.layer === 'core' && (
+                    <button onClick={() => forkCore(p.id)} style={{ background: 'rgba(255,255,255,0.05)', color: 'white', padding: '0.25rem 0.5rem', fontSize: '0.65rem' }}>
+                      コアをフォーク
+                    </button>
+                  )}
                 </div>
               )}
             </div>

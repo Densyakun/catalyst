@@ -67,6 +67,18 @@ function renderBacklogMarkdown(proposals: EvolutionProposal[]): string {
     lines.push(`- 優先度: ${p.priority}`);
     if (p.target_area) lines.push(`- 対象: ${p.target_area}`);
     lines.push(`- 提案ID: ${p.id}`);
+    const governance = p.signals?.governance;
+    if (governance) {
+      lines.push(`- レイヤー: ${governance.layer}`);
+      if (governance.core_version) lines.push(`- コアバージョン: ${governance.core_version}`);
+      if (governance.forked_from) lines.push(`- フォーク元: ${governance.forked_from}`);
+      const decision = governance.last_decision;
+      if (decision) {
+        lines.push(
+          `- 最終判断: ${decision.to} / ${decision.actor_type}(${decision.actor_role}) ${decision.actor_id ?? 'system'} / ${decision.at}`,
+        );
+      }
+    }
     lines.push('');
     lines.push('### 根拠');
     lines.push(p.rationale);
