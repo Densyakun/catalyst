@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { validateUIVariantCode } from './safety';
 
 /**
  * 動的UIランタイム（ブラウザ専用）。
@@ -60,6 +61,12 @@ export async function renderVariant(
   code: string,
   data: Record<string, unknown>,
 ): Promise<RenderVariantResult> {
+  const validation = validateUIVariantCode(code);
+  if (!validation.ok) {
+    console.error('renderVariant rejected unsafe code:', validation.errors);
+    return { element: null, error: validation.errors.join('; ') };
+  }
+
   try {
     const { Project } = await import('ts-morph');
     const { compileSourceFileToJSON, evalSyntaxList } = await import('tsx-safe-eval');

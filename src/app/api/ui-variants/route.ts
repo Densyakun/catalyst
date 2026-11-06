@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { generateUIVariant } from '@/lib/ai/agents/evolution';
+import { generateUIVariant, type UIVariantDraft } from '@/lib/ai/agents/evolution';
 import { collectEvolutionSignals } from '@/lib/evolution/signals';
 import type { GenerateUIVariantRequest } from '@/lib/types/evolution';
+import {
+  validateUIVariantCode,
+  type UICodeValidationResult,
+} from '@/lib/ui/safety';
+
+const GENERATION_ATTEMPTS = 2;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5;
 
 /**
  * 動的UIバリアント。
@@ -48,8 +56,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'area is required' }, { status: 400 });
     }
 
+    const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+    const { count, error: rateError } = await supabase
+      .from('ui_variants')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', since);
+    if (rateError) throw rateError;
+    if ((count ?? 0) >= RATE_LIMIT_MAX) {
+      return NextResponse.json(
+        { error: 'UI生成のリクエストが多すぎます。しばらく待ってから再試行してください。' },
+        { status: 429, headers: { 'Retry-After': '60' } },
+      );
+    }
+
     const signals = await collectEvolutionSignals(supabase, user.id);
-    const draft = await generateUIVariant({ area, instruction: body.instruction, signals });
+    let draft: UIVariantDraft | null = null;
+    let validation: UICodeValidationResult = { ok: false, errors: ['UIが生成されませんでした'] };
+    let instruction = body.instruction;
+
+    for (let attempt = 0; attempt < GENERATION_ATTEMPTS; attempt += 1) {
+      draft = await generateUIVariant({ area, instruction, signals });
+      validation = validateUIVariantCode(draft.code);
+      if (validation.ok) break;
+
+      const feedback = validation.errors.join(' / ');
+      instruction = `${instruction ? `${instruction}\n` : ''}前回の出力は安全性検証に失敗した。次を必ず修正せよ: ${feedback}`;
+    }
+
+    if (!draft || !validation.ok) {
+      return NextResponse.json(
+        {
+          error: '生成されたUIが安全性検証に合格しませんでした',
+          details: validation.errors,
+        },
+        { status: 422 },
+      );
+    }
 
     const { data, error } = await supabase
       .from('ui_variants')
