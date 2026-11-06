@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { AutoInsight } from '@/lib/types/sources';
+import { trackEvent } from '@/lib/telemetry';
 import type {
   SharedIdea,
   SharedIdeaStatus,
@@ -179,6 +180,11 @@ export default function CommunityIdeasPanel({
       setSupportMessage('');
       await load();
       onSupported?.();
+      void trackEvent('collaboration_support_completed', {
+        ideaId,
+        supportType: type,
+        hasAmount: amount != null,
+      });
       setMessage(type === 'money' ? '資金支援を記録しました。' : '協力の申し出を記録しました。');
     } catch (error) {
       console.error('Community idea support error:', error);
@@ -390,6 +396,10 @@ export default function CommunityIdeasPanel({
                           setActiveSupport({ ideaId: idea.id, type });
                           setSupportAmount('');
                           setSupportMessage('');
+                          void trackEvent('collaboration_support_started', {
+                            ideaId: idea.id,
+                            supportType: type,
+                          });
                         }}
                         style={{
                           padding: '0.22rem 0.45rem',
