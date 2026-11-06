@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { collectEvolutionSignals } from '@/lib/evolution/signals';
 import { buildLlmHealthProposals } from '@/lib/evolution/llm-health';
+import { buildProposalGovernance } from '@/lib/evolution/governance';
 import { analyzeEvolution } from '@/lib/ai/agents/evolution';
 import type { EvolutionProposal } from '@/lib/types/evolution';
 
@@ -68,6 +69,13 @@ export async function runEvolutionAnalysis(
             findings: [draft.finding],
             groups: [draft.group],
           },
+          governance: buildProposalGovernance({
+            title: draft.title,
+            category: draft.category,
+            rationale: draft.rationale,
+            target_area: draft.target_area,
+            proposed_change: draft.proposed_change,
+          }),
         },
         status: 'proposed',
       };
@@ -106,7 +114,16 @@ export async function runEvolutionAnalysis(
         proposed_change: proposal.proposed_change,
         priority: proposal.priority,
         evidence: proposal.evidence,
-        signals: signals.stats,
+        signals: {
+          ...signals.stats,
+          governance: buildProposalGovernance({
+            title: proposal.title,
+            category: proposal.category,
+            rationale: proposal.rationale,
+            target_area: proposal.target_area,
+            proposed_change: proposal.proposed_change,
+          }),
+        },
         status: 'proposed',
       }));
 
