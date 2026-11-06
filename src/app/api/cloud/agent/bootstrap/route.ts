@@ -43,6 +43,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: authorization.reason }, { status });
     }
 
+    // ランナーには秘密情報を保存させず、実行のたびにこのAPIから渡す。
+    // Portkey利用時は x-portkey-api-key を llm.headers に含める。
+    // OpenCode Goの x-opencode-session はランナー側で付与する。
     const apiKey = process.env.OPENAI_API_KEY || '';
     const llmHeaders = getLlmAuthHeaders();
     const payload = {

@@ -16,6 +16,18 @@ export type CloudFunding = 'user' | 'system' | 'donation_pool';
 
 export type CloudPaymentStatus = 'pending' | 'charged' | 'shortfall' | 'free';
 
+export interface CloudJobFeedback {
+  at: string;
+  note: string;
+}
+
+export interface CloudJobPreviousAttempt {
+  error?: string | null;
+  result_detail?: string | null;
+  security_flags?: string[];
+  finished_at?: string | null;
+}
+
 export interface CloudJob {
   id: string;
   kind: CloudJobKind;
@@ -44,10 +56,13 @@ export interface CloudJob {
   auto_attempts?: number;
   security_flags?: string[];
   human_approved?: boolean;
+  feedback_history?: CloudJobFeedback[];
+  previous_attempts?: CloudJobPreviousAttempt[];
   progress_stage?: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  last_activity_at: string;
 }
 
 export interface CloudOverview {

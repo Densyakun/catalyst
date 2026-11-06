@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     const job = result.job;
+    const metadata = (job.metadata as Record<string, unknown> | null) || {};
     return NextResponse.json({
       job: {
         id: job.id,
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
         max_minutes: job.max_minutes,
         stall_minutes: config.jobStallMinutes,
         started_at: job.started_at,
-        allow_push: config.autoPush,
+        allow_push: config.autoPush || metadata.human_approved === true,
         max_diff_lines: config.maxDiffLines,
         sandbox_user: config.sandboxUser,
       },

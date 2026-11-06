@@ -20,13 +20,17 @@ export async function GET() {
       .from('cloud_jobs')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(100);
     if (!isAdmin) query = query.eq('user_id', user.id);
 
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json({ jobs: (data || []).map((job) => toCloudJob(job, isAdmin)) });
+    return NextResponse.json({
+      jobs: (data || [])
+        .map((job) => toCloudJob(job, isAdmin))
+        .sort((a, b) => new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime()),
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

@@ -23,6 +23,24 @@ function num(value: unknown): number {
 
 export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
   const metadata = (row.metadata as Record<string, unknown> | null) || {};
+  const activityCandidates = [
+    row.created_at,
+    row.started_at,
+    row.finished_at,
+    row.heartbeat_at,
+    metadata.rerun_at,
+    metadata.approved_at,
+    metadata.progress_at,
+    metadata.actions_bootstrap_at,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value));
+  const lastActivityAt = activityCandidates.reduce((latest, value) => {
+    const at = Date.parse(value);
+    const latestAt = Date.parse(latest);
+    return Number.isFinite(at) && (!Number.isFinite(latestAt) || at > latestAt) ? value : latest;
+  }, String(row.created_at || new Date(0).toISOString()));
+
   return {
     id: String(row.id),
     kind: row.kind === 'app_issue' ? 'app_issue' : 'user_task',
@@ -59,10 +77,35 @@ export function toCloudJob(row: Row, isAdmin: boolean): CloudJob {
       ? metadata.security_flags.map((flag) => String(flag)).slice(0, 20)
       : undefined,
     human_approved: isAdmin ? metadata.human_approved === true : undefined,
+    feedback_history: isAdmin && Array.isArray(metadata.feedback_history)
+      ? metadata.feedback_history
+          .map((item) => {
+            const entry = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+            return { at: String(entry.at || ''), note: String(entry.note || '') };
+          })
+          .filter((item) => item.note)
+          .slice(-10)
+      : undefined,
+    previous_attempts: isAdmin && Array.isArray(metadata.previous_attempts)
+      ? metadata.previous_attempts
+          .map((item) => {
+            const entry = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+            return {
+              error: entry.error ? String(entry.error) : null,
+              result_detail: entry.result_detail ? String(entry.result_detail) : null,
+              security_flags: Array.isArray(entry.security_flags)
+                ? entry.security_flags.map((flag) => String(flag)).slice(0, 20)
+                : [],
+              finished_at: entry.finished_at ? String(entry.finished_at) : null,
+            };
+          })
+          .slice(-5)
+      : undefined,
     progress_stage: isAdmin && metadata.stage ? String(metadata.stage) : null,
     created_at: String(row.created_at),
     started_at: row.started_at ? String(row.started_at) : null,
     finished_at: row.finished_at ? String(row.finished_at) : null,
+    last_activity_at: lastActivityAt,
   };
 }
 
@@ -1168,12 +1211,28 @@ export type RequeueCloudJobResult =
   | { ok: true; job: Row }
   | { ok: false; reason: 'not_found' | 'not_retryable' | 'duplicate' };
 
+export interface RequeueCloudJobOptions {
+  /** 安全確認（差分チェック）で停止したジョブを、管理者の承認で再実行する */
+  fromBlockedDiff?: boolean;
+  /** 再実行時のプロンプト末尾に足す追加の指示 */
+  appendPrompt?: string;
+  /** 追加の指示を履歴として残す */
+  actorNote?: string;
+  /** 承認済みとして記録し、自動 push を許可する */
+  humanApprove?: boolean;
+}
+
 /**
  * 終了済みのジョブを待機状態に戻し、もう一度実行できるようにする。
  * 実行環境は使い捨てで途中成果は残らないため、同じ依頼内容を最初から実行し直す。
  * 前回の結果と使用量は metadata.previous_attempts に退避し、今回分の課金と混ざらないようにする。
+ * 差分確認で止まったジョブは、確認用に保存した変更内容（秘密情報は伏せたもの）も退避する。
  */
-export async function requeueCloudJob(jobId: string, actorId?: string | null): Promise<RequeueCloudJobResult> {
+export async function requeueCloudJob(
+  jobId: string,
+  actorId?: string | null,
+  options: RequeueCloudJobOptions = {},
+): Promise<RequeueCloudJobResult> {
   const admin = createAdminClient();
   const { data: current } = await admin
     .from('cloud_jobs')
@@ -1183,7 +1242,9 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
   if (!current) return { ok: false, reason: 'not_found' };
 
   const job = current as Row;
-  if (!isCloudJobRetryable(String(job.status))) {
+  const metadata = (job.metadata as Record<string, unknown> | null) || {};
+  const blockedDiff = String(job.status) === 'blocked' && metadata.blocked_stage === 'diff';
+  if (!isCloudJobRetryable(String(job.status)) && !(options.fromBlockedDiff && blockedDiff)) {
     return { ok: false, reason: 'not_retryable' };
   }
 
@@ -1202,7 +1263,6 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
     if (blocker) return { ok: false, reason: 'duplicate' };
   }
 
-  const metadata = (job.metadata as Record<string, unknown> | null) || {};
   const previousAttempts = Array.isArray(metadata.previous_attempts)
     ? metadata.previous_attempts.slice(-4)
     : [];
@@ -1210,6 +1270,11 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
     status: String(job.status),
     error: job.error ? String(job.error) : null,
     result_summary: job.result_summary ? String(job.result_summary) : null,
+    // 差分確認で止まった場合、確認用に保存した変更内容も残す
+    result_detail: job.result_detail ? String(job.result_detail).slice(0, 8000) : null,
+    security_flags: Array.isArray(metadata.security_flags)
+      ? metadata.security_flags.map((flag) => String(flag)).slice(0, 20)
+      : [],
     runtime_seconds: num(job.runtime_seconds),
     input_tokens: num(job.input_tokens),
     output_tokens: num(job.output_tokens),
@@ -1218,12 +1283,32 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
     finished_at: job.finished_at ? String(job.finished_at) : null,
   };
 
+  const note = options.actorNote?.trim().slice(0, 4000) || '';
+  const feedbackHistory = Array.isArray(metadata.feedback_history)
+    ? metadata.feedback_history.slice(-9)
+    : [];
+  if (note) feedbackHistory.push({ at: new Date().toISOString(), by: actorId ?? null, note });
+
+  const appendedPrompt = options.appendPrompt?.trim().slice(0, 4000) || '';
+  const nextPrompt = appendedPrompt
+    ? `${String(job.prompt || '')}\n\n追加の指示（再実行時）:\n${appendedPrompt}`
+    : null;
+
   const nextMetadata: Record<string, unknown> = { ...metadata };
   delete nextMetadata.blocked_stage;
   delete nextMetadata.stage;
   delete nextMetadata.usage;
   delete nextMetadata.technical_error;
   delete nextMetadata.detail;
+  // 再実行では新しい検出結果だけを表示する（履歴は previous_attempts に残す）
+  delete nextMetadata.security_flags;
+  delete nextMetadata.retry_exhausted;
+  if (feedbackHistory.length > 0) nextMetadata.feedback_history = feedbackHistory;
+  if (options.humanApprove) {
+    nextMetadata.human_approved = true;
+    nextMetadata.approved_by = actorId ?? null;
+    nextMetadata.approved_at = new Date().toISOString();
+  }
 
   const rerunCount = Math.max(0, num(metadata.rerun_count)) + 1;
   const now = new Date().toISOString();
@@ -1248,6 +1333,7 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
     input_tokens: 0,
     output_tokens: 0,
     cost_usd: 0,
+    ...(nextPrompt ? { prompt: nextPrompt } : {}),
     metadata: {
       ...nextMetadata,
       stage: 'queued',
@@ -1263,7 +1349,9 @@ export async function requeueCloudJob(jobId: string, actorId?: string | null): P
       .from('cloud_jobs')
       .update(body)
       .eq('id', jobId)
-      .in('status', [...CLOUD_JOB_RETRYABLE_STATUSES])
+      .in('status', options.fromBlockedDiff && blockedDiff
+        ? ['blocked', ...CLOUD_JOB_RETRYABLE_STATUSES]
+        : [...CLOUD_JOB_RETRYABLE_STATUSES])
       .select()
       .maybeSingle();
 

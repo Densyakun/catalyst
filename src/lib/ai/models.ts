@@ -1,3 +1,10 @@
+/**
+ * LLM接続の設計メモ: docs/llm-portkey-opencode.md
+ *
+ * - Portkey経由では x-portkey-api-key にPortkeyのキーを送る
+ * - OpenCode Goでは x-opencode-session が必須
+ * - PortkeyとOpenCodeは同時に成立する（Portkey → OpenCode Go）
+ */
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 

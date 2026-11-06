@@ -61,7 +61,9 @@ function groupCloudJobsByIssue(jobs: CloudJob[]): CloudJobGroup[] {
 
   const groups: CloudJobGroup[] = [];
   for (const [key, list] of map) {
-    const sorted = [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const sorted = [...list].sort(
+      (a, b) => new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime(),
+    );
     const latest = sorted[0];
     const active = sorted.filter(isActiveJob);
     const status = active.length > 0 ? active[0].status : latest.status;
@@ -72,7 +74,7 @@ function groupCloudJobsByIssue(jobs: CloudJob[]): CloudJobGroup[] {
       repo: latest.repo,
       title: latest.kind === 'app_issue' ? stripIssuePrefix(latest.title) : latest.title,
       jobs: sorted,
-      latestAt: latest.created_at,
+      latestAt: latest.last_activity_at,
       status,
       hasActive: active.length > 0,
     });
@@ -122,6 +124,10 @@ function formatDuration(seconds: number): string {
   return minutes > 0 ? `${minutes}分${rest}秒` : `${rest}秒`;
 }
 
+function formatTokens(value: number | undefined): string {
+  return (value ?? 0).toLocaleString('ja-JP');
+}
+
 export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) {
   const [data, setData] = useState<CloudOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -131,6 +137,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   const [message, setMessage] = useState('');
   const [view, setView] = useState<'history' | 'issue'>('history');
 
@@ -222,7 +229,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
     }
   };
 
-  const decide = async (job: CloudJob, action: 'approve' | 'reject') => {
+  const decide = async (job: CloudJob, action: 'approve' | 'reject', note = '') => {
     if (deciding) return;
     setDeciding(job.id);
     setMessage('');
@@ -230,14 +237,14 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       const res = await fetch(`/api/cloud/jobs/${job.id}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, note }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || '操作に失敗しました');
       if (action === 'reject') {
         setMessage('却下しました。');
       } else if (json.started) {
-        setMessage('実行を開始しました。');
+        setMessage(json.rerun ? '追加の指示を反映して再実行を開始しました。' : '実行を開始しました。');
       } else {
         setMessage(`実行待ちに登録しました${json.dispatch_error ? `（${json.dispatch_error}）` : '。順番に実行します。'}`);
       }
@@ -246,6 +253,27 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setDeciding(null);
+    }
+  };
+
+  const cleanupHistory = async () => {
+    if (cleaning) return;
+    const target = data?.is_admin ? 'すべてのユーザーの' : '';
+    if (!window.confirm(`${target}失敗・時間切れ・キャンセルした作業履歴を削除します。元に戻せません。よろしいですか？`)) {
+      return;
+    }
+    setCleaning(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/cloud/jobs/cleanup', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || '削除できませんでした');
+      setMessage(`${json.deleted ?? 0}件の履歴を削除しました。`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -261,7 +289,7 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
           deciding={deciding === job.id}
           retrying={retrying === job.id}
           onCancel={() => void cancel(job)}
-          onDecide={(action) => void decide(job, action)}
+          onDecide={(action, note) => void decide(job, action, note)}
           onRetry={() => void retry(job)}
         />
       ))}
@@ -425,6 +453,17 @@ export default function CloudPanel({ refreshKey = 0 }: { refreshKey?: number }) 
               >
                 <RefreshCw size={13} />
               </button>
+              {(data?.jobs.some((job) => ['failed', 'cancelled', 'timed_out'].includes(job.status))) && (
+                <button
+                  type="button"
+                  onClick={() => void cleanupHistory()}
+                  disabled={cleaning}
+                  title="失敗・時間切れ・キャンセルした履歴をまとめて削除します"
+                  style={{ marginLeft: '0.3rem', padding: '0.2rem 0.5rem', fontSize: '0.62rem', borderRadius: '999px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', cursor: cleaning ? 'default' : 'pointer' }}
+                >
+                  {cleaning ? '削除中...' : '失敗した履歴を削除'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -572,14 +611,16 @@ function JobRow({
   deciding: boolean;
   retrying: boolean;
   onCancel: () => void;
-  onDecide: (action: 'approve' | 'reject') => void;
+  onDecide: (action: 'approve' | 'reject', note?: string) => void;
   onRetry: () => void;
 }) {
   const meta = STATUS_META[job.status] ?? STATUS_META.failed;
   const active = ['queued', 'provisioning', 'running', 'blocked'].includes(job.status);
   const canRetry = ['failed', 'cancelled', 'timed_out'].includes(job.status);
   const canReview = isAdmin && job.status === 'blocked' && job.blocked_stage === 'precheck';
+  const canRequeueDiff = isAdmin && job.status === 'blocked' && job.blocked_stage === 'diff';
   const retryExhausted = canReview && job.retry_exhausted === true;
+  const [note, setNote] = useState('');
   const Icon = job.status === 'succeeded'
     ? CheckCircle2
     : job.status === 'failed'
@@ -644,12 +685,16 @@ function JobRow({
       </div>
 
       <div style={{ display: 'flex', gap: '0.7rem', flexWrap: 'wrap', fontSize: '0.64rem', color: 'var(--text-secondary)' }}>
-        <span>{formatDate(job.created_at)}</span>
+        <span>更新 {formatDate(job.last_activity_at)}</span>
         {job.started_at && <span>実行 {formatDuration(job.runtime_seconds)}</span>}
         {job.credits_charged > 0 && <span>{job.credits_charged.toFixed(1)} クレジット</span>}
         {job.payment_status === 'shortfall' && <span style={{ color: '#f59e0b' }}>残高不足</span>}
         {isAdmin && job.cost_usd != null && job.cost_usd > 0 && <span>API ${job.cost_usd.toFixed(4)}</span>}
-        {isAdmin && job.output_tokens != null && <span>{job.input_tokens ?? 0} / {job.output_tokens} tokens</span>}
+        {isAdmin && job.output_tokens != null && (
+          <span title="左が入力（依頼・コード・文脈）、右が出力（AIの回答・生成）のトークン数です">
+            入力 {formatTokens(job.input_tokens)} / 出力 {formatTokens(job.output_tokens)} トークン
+          </span>
+        )}
       </div>
 
       {job.result_summary && (
@@ -685,15 +730,69 @@ function JobRow({
           }}
         >
           検出: {job.security_flags.join(' / ')}
+          {job.security_flags.some((flag) => flag.includes('秘密情報')) && (
+            <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--text-secondary)' }}>
+              秘密情報そのものは表示していません。検出されたファイル・行と、値を伏せた差分は下の「詳細を見る」で確認できます。
+            </span>
+          )}
         </div>
       )}
 
-      {canReview && (
+      {isAdmin && job.feedback_history && job.feedback_history.length > 0 && (
+        <details>
+          <summary style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            追加の指示の履歴（{job.feedback_history.length}件）
+          </summary>
+          <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1rem', fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'grid', gap: '0.2rem' }}>
+            {job.feedback_history.map((item, index) => (
+              <li key={`${item.at}-${index}`}>
+                {item.at ? `${formatDate(item.at)}: ` : ''}
+                {item.note}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {isAdmin && job.previous_attempts && job.previous_attempts.some((item) => item.result_detail) && (
+        <details>
+          <summary style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            前回の変更内容を見る（再実行前の状態）
+          </summary>
+          <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.3rem' }}>
+            {job.previous_attempts
+              .filter((item) => item.result_detail)
+              .map((item, index) => (
+                <pre
+                  key={`${item.finished_at}-${index}`}
+                  style={{
+                    margin: 0,
+                    padding: '0.45rem',
+                    background: 'rgba(0,0,0,0.2)',
+                    borderRadius: '6px',
+                    fontSize: '0.64rem',
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                    maxHeight: '240px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {item.result_detail}
+                </pre>
+              ))}
+          </div>
+        </details>
+      )}
+
+      {(canReview || canRequeueDiff) && (
         <div style={{ display: 'grid', gap: '0.45rem' }}>
           <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-            {retryExhausted
-              ? `過去の失敗が自動実行の試行上限（${job.auto_attempts ?? 2}回）に達したため停止しています。原因を解消したあと「実行」を押すと、この上限に関係なくすぐに実行します。失敗すると自動実行は再び停止します。`
-              : '安全確認のため実行を停止しています。承認するとクラウド作業を再開し、却下すると実行せず終了します。'}
+            {canRequeueDiff
+              ? `変更内容の安全確認で停止しています。${job.pr_url ? '確認用の下書きPRがあるので、内容を確認してマージするか、修正が必要なら追加の指示を書いて再実行してください。' : '変更内容は下の「詳細を見る」に保存しています（秘密情報の値は伏せています）。作業環境は実行ごとに破棄されるため、承認すると保存した変更内容を引き継いで最初から実行し直します。'}`
+              : retryExhausted
+                ? `過去の失敗が自動実行の試行上限（${job.auto_attempts ?? 2}回）に達したため停止しています。原因を解消したあと「実行」を押すと、この上限に関係なくすぐに実行します。失敗すると自動実行は再び停止します。`
+                : '安全確認のため実行を停止しています。承認するとクラウド作業を再開し、却下すると実行せず終了します。'}
+            {canRequeueDiff && ' 秘密情報を避ける指示などがあれば、下の欄に書いてください。'}
             {!compact && job.issue_url && (
               <>
                 {' '}
@@ -723,15 +822,25 @@ function JobRow({
               </pre>
             </details>
           )}
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder={canRequeueDiff
+              ? '追加の指示（任意）: 例: 秘密情報は使わずダミー値にしてください / 変更は src/foo.ts だけでお願いします'
+              : '追加の指示（任意）: 再実行時の依頼に追記されます'}
+            rows={3}
+            maxLength={4000}
+            style={{ ...inputStyle, resize: 'vertical', fontSize: '0.7rem' }}
+          />
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button
               type="button"
-              onClick={() => onDecide('approve')}
+              onClick={() => onDecide('approve', note)}
               disabled={deciding}
               className="btn-primary"
               style={{ padding: '0.35rem 0.7rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
             >
-              <ShieldCheck size={12} /> {deciding ? '処理中...' : retryExhausted ? '実行' : '承認して実行'}
+              <ShieldCheck size={12} /> {deciding ? '処理中...' : canRequeueDiff ? '承認して再実行' : retryExhausted ? '実行' : '承認して実行'}
             </button>
             <button
               type="button"
@@ -753,7 +862,7 @@ function JobRow({
       )}
 
       {job.result_detail && job.result_detail !== job.result_summary && (
-        <details open={retryExhausted ? true : undefined}>
+        <details open={retryExhausted || canRequeueDiff ? true : undefined}>
           <summary style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>詳細を見る</summary>
           <pre
             style={{

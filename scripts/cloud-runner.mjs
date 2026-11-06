@@ -20,6 +20,10 @@ let GITHUB_API_TOKEN = process.env.CATALYST_GITHUB_TOKEN || GITHUB_TOKEN;
 
 // Actions では OPENCODE_GO_API_KEY の代わりに、アプリと同じ LLM 設定を使える。
 // 値は起動時にアプリの bootstrap API から受け取る（リポジトリに保存しない）。
+// 設計メモ: docs/llm-portkey-opencode.md
+// - LLM_API_KEY は Authorization: Bearer（上流プロバイダーのキー）
+// - LLM_HEADERS には Portkey の x-portkey-api-key / provider / config が入る
+// - LLM_OPENCODE が真なら x-opencode-session を付与する
 let LLM_BASE_URL = (process.env.KATALYST_LLM_BASE_URL || '').replace(/\/+$/, '');
 let LLM_API_KEY = process.env.KATALYST_LLM_API_KEY || '';
 let LLM_MODEL = process.env.KATALYST_LLM_MODEL || '';
@@ -95,6 +99,77 @@ function unique(values) {
 function scanSecrets(text) {
   if (!text) return [];
   return unique(SECRETS.filter((item) => item.re.test(text)).map((item) => item.label));
+}
+
+function findSecretLocations(diffText, untrackedText) {
+  const locations = [];
+  let file = '';
+  let lineNumber = 0;
+  for (const line of String(diffText || '').split('\n')) {
+    const header = line.match(/^\+\+\+ b\/(.+)$/);
+    if (header) {
+      file = header[1].trim();
+      lineNumber = 0;
+      continue;
+    }
+    if (line.startsWith('@@')) {
+      const hunk = line.match(/\+(\d+)/);
+      if (hunk) lineNumber = Number(hunk[1]);
+      continue;
+    }
+    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    const labels = scanSecrets(line);
+    if (labels.length > 0 && file) {
+      locations.push({ file, line: lineNumber, labels });
+    }
+    lineNumber += 1;
+  }
+
+  let untrackedFile = '';
+  for (const line of String(untrackedText || '').split('\n')) {
+    const marker = line.match(/^--- (.+) ---$/);
+    if (marker) {
+      untrackedFile = marker[1].trim();
+      continue;
+    }
+    if (!untrackedFile) continue;
+    const labels = scanSecrets(line);
+    if (labels.length > 0) {
+      locations.push({ file: untrackedFile, line: null, labels });
+    }
+  }
+
+  const seen = new Set();
+  return locations
+    .filter((item) => {
+      const key = `${item.file}:${item.line ?? ''}:${item.labels.join(',')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 30);
+}
+
+// 秘密情報の値そのものは出さず、変更の構造（ファイル・行・差分）だけを残す。
+function redactReviewText(text) {
+  let inPrivateKey = false;
+  return String(text || '')
+    .split('\n')
+    .map((line) => {
+      if (!line) return line;
+      if (/^(diff |index |--- |\+\+\+ |@@)/.test(line)) return line;
+      const begin = /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(line);
+      const end = /-----END [A-Z ]*PRIVATE KEY-----/.test(line);
+      const labels = scanSecrets(line);
+      const shouldRedact = inPrivateKey || labels.length > 0;
+      const prefix = /^[+\- ]/.test(line) ? line[0] : '';
+      if (!shouldRedact) return line;
+      const reason = labels.length > 0 ? labels.join(' / ') : '秘密鍵';
+      if (begin) inPrivateKey = true;
+      if (end) inPrivateKey = false;
+      return `${prefix}[REDACTED: ${reason}]`;
+    })
+    .join('\n');
 }
 
 function scanProtectedPaths(files) {
@@ -676,6 +751,7 @@ async function collectReview(maxDiffLines) {
       untrackedText: '',
       diffLines: trackedLines,
       secretHits: [],
+      secretLocations: [],
       protectedHits: scanProtectedPaths(files),
       flags: ['変更量が上限を超えています'],
     };
@@ -750,6 +826,7 @@ async function collectReview(maxDiffLines) {
     untrackedText,
     diffLines: countLines(diffText) + countLines(untrackedText),
     secretHits: scanSecrets(`${diffText}\n${untrackedText}`),
+    secretLocations: findSecretLocations(diffText, untrackedText),
     protectedHits: scanProtectedPaths(files),
     flags,
   };
@@ -1267,13 +1344,27 @@ async function processJob(job) {
   ];
 
   if (review.secretHits.length > 0) {
+    const locationLines = review.secretLocations.length > 0
+      ? review.secretLocations.map(
+          (hit) => `- ${hit.file}${hit.line ? `:${hit.line}` : ''}: ${hit.labels.join(' / ')}`,
+        )
+      : [`- 検出: ${review.secretHits.join(' / ')}`];
+    const redactedReview = redactReviewText(`${review.diffText}\n${review.untrackedText}`);
     await reportJob(job, {
       status: 'blocked',
       summary: '秘密情報の可能性を検出したため停止しました。',
       detail: [
-        '秘密情報らしき文字列を検出したため、差分の内容は表示しません。',
-        `検出: ${review.secretHits.join(' / ')}`,
+        '秘密情報らしき文字列を検出したため、自動公開を停止しました。値そのものは表示せず、該当行だけを伏せた変更内容を残しています。',
+        '',
+        '検出箇所:',
+        ...locationLines,
+        '',
         `変更ファイル: ${review.files.join(', ')}`,
+        '',
+        '--- 変更内容（秘密情報の値は伏せています） ---',
+        redactedReview.slice(0, 8000),
+        '',
+        '秘密情報を含む変更は branch / PR として公開していません。値を除去するか、追加の指示を書いて再実行してください。',
       ].join('\n'),
       error: 'secret_detected',
       securityFlags: unique(reviewFlags),

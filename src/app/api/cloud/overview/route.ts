@@ -34,7 +34,7 @@ export async function GET() {
       .from('cloud_jobs')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(60);
     if (!isAdmin) query = query.eq('user_id', user.id);
 
     const { data: jobs, error } = await query;
@@ -52,7 +52,9 @@ export async function GET() {
       auto_repo: isAdmin ? config.repo || null : null,
       auto_push: isAdmin ? config.autoPush : false,
       max_concurrent: isAdmin ? config.maxConcurrent : 0,
-      jobs: (jobs || []).map((job) => toCloudJob(job, isAdmin)),
+      jobs: (jobs || [])
+        .map((job) => toCloudJob(job, isAdmin))
+        .sort((a, b) => new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime()),
       message: isCloudConfigured()
         ? undefined
         : 'クラウド作業は現在準備中です。管理者が環境を設定すると利用できます。',
