@@ -27,6 +27,7 @@ Katalyseは、個人の抱える不透明な課題をAIが構造化し、具体�
 - **AI モデルの役割別割り当て**:
   - タスクの性質（構造化 vs 解決提案）に合わせてモデルを割り当て。
   - 単一の `OPENAI_API_KEY` と `OPENAI_BASE_URL` を使い、モデルは `OPENAI_MODEL_STRUCTURING` / `OPENAI_MODEL_SOLVING` で指定。
+  - どの設定からモデルが選ばれたか（役割別 / 共通 / 既定、バックエンド種別）を `llm_calls.metadata.model_selection` に記録。
   - Portkey / OpenCode 経由の認証・ヘッダー・環境変数の設計は [docs/llm-portkey-opencode.md](docs/llm-portkey-opencode.md) を参照。
 - **アイデアのオフライン保存・時間指定・後処理**:
   - LLM が使えない時でもアイデアを保存でき、`idea_inbox` にキューイング。

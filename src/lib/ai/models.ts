@@ -80,6 +80,53 @@ export function isPortkeyBackend(): boolean {
   return process.env.OPENAI_BACKEND?.trim().toLowerCase() === PORTKEY_BACKEND;
 }
 
+export type ModelSelectionSource = 'role_env' | 'shared_env' | 'default';
+
+export type ModelSelection = {
+  role: ModelRole;
+  model: string;
+  source: ModelSelectionSource;
+  envVar: string | null;
+  backend: 'opencode' | 'portkey' | 'openai';
+  rationale: string;
+};
+
+/**
+ * 役割ごとにどの設定からモデルが選ばれたかを記録用に説明する。
+ * 実際の呼び出しと同じ解決ロジックを使い、判断根拠を llm_calls.metadata に残す。
+ */
+export function describeModelSelection(
+  role: ModelRole,
+  model: string = resolveModelId(role),
+): ModelSelection {
+  const roleEnvVar = role === 'structuring' ? 'OPENAI_MODEL_STRUCTURING' : 'OPENAI_MODEL_SOLVING';
+  const roleValue = process.env[roleEnvVar];
+  const sharedValue = process.env.OPENAI_MODEL;
+
+  let source: ModelSelectionSource;
+  let envVar: string | null;
+  if (isValidValue(roleValue)) {
+    source = 'role_env';
+    envVar = roleEnvVar;
+  } else if (isValidValue(sharedValue)) {
+    source = 'shared_env';
+    envVar = 'OPENAI_MODEL';
+  } else {
+    source = 'default';
+    envVar = null;
+  }
+
+  const backend = isOpenCodeBackend() ? 'opencode' : isPortkeyBackend() ? 'portkey' : 'openai';
+  const rationale =
+    source === 'role_env'
+      ? `${roleEnvVar} が設定されているため、役割専用のモデルを使用`
+      : source === 'shared_env'
+        ? `OPENAI_MODEL の共通設定を ${role} 役割に使用`
+        : `環境変数が未設定のため既定モデル ${DEFAULT_MODEL} を使用`;
+
+  return { role, model, source, envVar, backend, rationale };
+}
+
 /**
  * 呼び出しごとのセッションIDを生成する。
  */

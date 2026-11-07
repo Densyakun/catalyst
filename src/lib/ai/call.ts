@@ -2,14 +2,32 @@ import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import {
   assertLLMConfigured,
+  describeModelSelection,
   getLlmBaseUrl,
   getLlmRequestHeaders,
   getModelForRole,
   isOpenCodeBackend,
   resolveModelId,
   type ModelRole,
+  type ModelSelection,
 } from './models';
 import { logLlmCall, type LlmCallContext, type LlmUsage } from './llm-log';
+
+/**
+ * モデル選択の根拠を、呼び出し元の metadata を壊さずに記録へ追加する。
+ */
+function withModelSelection(
+  context: LlmCallContext | undefined,
+  selection: ModelSelection,
+): LlmCallContext {
+  return {
+    ...context,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      model_selection: selection,
+    },
+  };
+}
 
 /** エージェントから渡す generateObject オプション（model は役割から解決） */
 export type RoleGenerateObjectOptions = {
@@ -101,6 +119,7 @@ export async function generateObjectForRole<T>(
   assertLLMConfigured();
 
   const model = resolveModelId(role);
+  const selection = describeModelSelection(role, model);
   const baseUrl = getLlmBaseUrl();
   const headers = getLlmRequestHeaders();
   const startedAt = Date.now();
@@ -158,7 +177,7 @@ export async function generateObjectForRole<T>(
       latencyMs: Date.now() - startedAt,
       usage: toUsage(outcome.usage),
       finishReason: outcome.finishReason,
-      context,
+      context: withModelSelection(context, selection),
     });
     return { object: outcome.object as T };
   } catch (error) {
@@ -169,7 +188,7 @@ export async function generateObjectForRole<T>(
       success: false,
       latencyMs: Date.now() - startedAt,
       error,
-      context,
+      context: withModelSelection(context, selection),
     });
     throw error;
   }
@@ -186,6 +205,7 @@ export async function generateTextForRole(
   assertLLMConfigured();
 
   const model = resolveModelId(role);
+  const selection = describeModelSelection(role, model);
   const baseUrl = getLlmBaseUrl();
   const headers = getLlmRequestHeaders();
   const startedAt = Date.now();
@@ -204,7 +224,7 @@ export async function generateTextForRole(
       latencyMs: Date.now() - startedAt,
       usage: toUsage(result.usage),
       finishReason: getFinishReason(result),
-      context,
+      context: withModelSelection(context, selection),
     });
     return result;
   } catch (error) {
@@ -215,7 +235,7 @@ export async function generateTextForRole(
       success: false,
       latencyMs: Date.now() - startedAt,
       error,
-      context,
+      context: withModelSelection(context, selection),
     });
     throw error;
   }
