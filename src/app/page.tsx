@@ -18,6 +18,7 @@ import NotificationsBell from '@/components/NotificationsBell';
 import APITokensPanel from '@/components/APITokensPanel';
 import MCPSetupPanel from '@/components/MCPSetupPanel';
 import CloudPanel from '@/components/CloudPanel';
+import DataExportPanel from '@/components/DataExportPanel';
 import TodayView, { type NavTab } from '@/components/TodayView';
 import ExecutionView from '@/components/ExecutionView';
 import DiagnosisResultView from '@/components/DiagnosisResultView';
@@ -940,6 +941,8 @@ function SettingsContent({
           <LogOut size={14} /> ログアウト
         </button>
       </div>
+
+      <DataExportPanel />
 
       <div className="glass-panel" style={{ padding: '1rem' }}>
         <h2 style={{ fontSize: '1rem', marginBottom: '0.2rem' }}>高度な設定</h2>
