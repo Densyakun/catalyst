@@ -7,14 +7,22 @@ import {
   Wrench, Users, Brain, Loader2,
 } from 'lucide-react';
 import type { UserResource, ResourceType } from '@/lib/types/engine';
+import {
+  USAGE_FREQUENCY_OPTIONS,
+  assessSurplus,
+  summarizeSurplus,
+  type UsageFrequency,
+} from '@/lib/resources/household';
 
 const RESOURCE_TYPE_CONFIG: Record<ResourceType, { label: string; icon: typeof Clock; color: string }> = {
   time: { label: '時間', icon: Clock, color: '#3b82f6' },
   money: { label: 'お金', icon: DollarSign, color: '#22c55e' },
   skill: { label: 'スキル', icon: Brain, color: '#8b5cf6' },
-  tool: { label: 'ツール', icon: Wrench, color: '#f59e0b' },
+  tool: { label: '持ち物・ツール', icon: Wrench, color: '#f59e0b' },
   connection: { label: '人脈', icon: Users, color: '#ec4899' },
 };
+
+const QUICK_ADD_ITEMS = ['衣類', '家電', '本', '工具', '日用品', '趣味用品'];
 
 export default function ResourcesPanel() {
   const [resources, setResources] = useState<UserResource[]>([]);
@@ -23,6 +31,7 @@ export default function ResourcesPanel() {
   const [formType, setFormType] = useState<ResourceType>('skill');
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [formFrequency, setFormFrequency] = useState<UsageFrequency>('monthly');
   const [submitting, setSubmitting] = useState(false);
 
   const fetchResources = useCallback(async () => {
@@ -55,12 +64,14 @@ export default function ResourcesPanel() {
           resource_type: formType,
           name: formName.trim(),
           description: formDesc.trim() || undefined,
+          metadata: { usage_frequency: formFrequency },
         }),
       });
 
       if (res.ok) {
         setFormName('');
         setFormDesc('');
+        setFormFrequency('monthly');
         setShowForm(false);
         fetchResources();
       }
@@ -98,6 +109,9 @@ export default function ResourcesPanel() {
     acc[type].push(r);
     return acc;
   }, {});
+
+  const surplusSummary = summarizeSurplus(resources);
+  const hasSurplus = surplusSummary.surplus + surplusSummary.watch > 0;
 
   return (
     <motion.div
@@ -184,11 +198,34 @@ export default function ResourcesPanel() {
                   );
                 })}
               </div>
+              <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                {QUICK_ADD_ITEMS.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => {
+                      setFormType('tool');
+                      setFormName(item);
+                    }}
+                    style={{
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '10px',
+                      border: '1px solid var(--glass-border)',
+                      background: 'transparent',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontSize: '0.68rem',
+                    }}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
               <input
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                placeholder="リソース名（例: JavaScript、車、友人の田中さん）"
+                placeholder="持ち物・リソース名（例: 衣類、家電、本、車）"
                 style={{
                   padding: '0.4rem 0.6rem',
                   background: 'rgba(255,255,255,0.05)',
@@ -214,6 +251,32 @@ export default function ResourcesPanel() {
                   outline: 'none',
                 }}
               />
+              <div>
+                <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                  使用頻度（余剰判定に使います）
+                </p>
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  {USAGE_FREQUENCY_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      title={option.hint}
+                      onClick={() => setFormFrequency(option.value)}
+                      style={{
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: '4px',
+                        border: formFrequency === option.value ? '1px solid #f59e0b' : '1px solid var(--glass-border)',
+                        background: formFrequency === option.value ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                        color: formFrequency === option.value ? '#fbbf24' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        fontSize: '0.7rem',
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 onClick={handleAdd}
                 disabled={!formName.trim() || submitting}
@@ -227,10 +290,31 @@ export default function ResourcesPanel() {
         )}
       </AnimatePresence>
 
+      {/* Surplus Summary */}
+      {hasSurplus && (
+        <div style={{
+          padding: '0.55rem 0.65rem',
+          marginBottom: '0.5rem',
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: '8px',
+        }}>
+          <p style={{ fontSize: '0.75rem', color: '#fbbf24', marginBottom: '0.2rem' }}>
+            余剰の候補: {surplusSummary.surplus + surplusSummary.watch}件
+            {surplusSummary.surplus > 0 && `（うち未使用 ${surplusSummary.surplus}件）`}
+          </p>
+          {surplusSummary.suggestions.map((suggestion) => (
+            <p key={suggestion} style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              ・{suggestion}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* Resource List */}
       {resources.length === 0 && !showForm && (
         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
-          リソースを追加すると、課題解決のアイデア生成に活用されます
+          持ち物と使用頻度を登録すると、余剰と再利用のヒントが表示されます
         </p>
       )}
 
@@ -253,41 +337,65 @@ export default function ResourcesPanel() {
               }}>
                 <Icon size={10} /> {config.label}
               </div>
-              {items.map((resource) => (
-                <div
-                  key={resource.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '0.3rem 0.5rem',
-                    background: 'rgba(255,255,255,0.03)',
-                    borderRadius: '6px',
-                    marginBottom: '0.2rem',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: '0.8rem' }}>{resource.name}</span>
-                    {resource.description && (
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginLeft: '0.3rem' }}>
-                        - {resource.description}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handleDelete(resource.id)}
+              {items.map((resource) => {
+                const assessment = assessSurplus(resource);
+                const isSurplus = assessment?.level === 'surplus';
+                const isWatch = assessment?.level === 'watch';
+
+                return (
+                  <div
+                    key={resource.id}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      padding: '0.2rem',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '0.3rem 0.5rem',
+                      background: isSurplus ? 'rgba(245, 158, 11, 0.08)' : 'rgba(255,255,255,0.03)',
+                      border: isSurplus ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid transparent',
+                      borderRadius: '6px',
+                      marginBottom: '0.2rem',
                     }}
                   >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>{resource.name}</span>
+                      {resource.description && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginLeft: '0.3rem' }}>
+                          - {resource.description}
+                        </span>
+                      )}
+                      {assessment && assessment.level !== 'in_use' && (
+                        <span style={{
+                          marginLeft: '0.35rem',
+                          padding: '0.05rem 0.35rem',
+                          borderRadius: '8px',
+                          fontSize: '0.62rem',
+                          color: isSurplus ? '#fbbf24' : 'var(--text-secondary)',
+                          background: isSurplus ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255,255,255,0.05)',
+                        }}>
+                          {assessment.label}
+                        </span>
+                      )}
+                      {assessment?.suggestion && (
+                        <p style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', marginTop: '0.1rem', lineHeight: 1.4 }}>
+                          {isWatch ? '使う予定がなければ' : ''}{assessment.suggestion}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDelete(resource.id)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        padding: '0.2rem',
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
