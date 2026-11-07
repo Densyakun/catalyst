@@ -116,13 +116,29 @@ export async function structureProblem(
         frequency: z.string().describe('頻度'),
         tags: z.array(z.string()).describe('タグ'),
         personal_priority: z.number().describe('個人重要度(0-1)'),
+        personal_indicators: z.object({
+          urgency: z.number().min(0).max(1).describe('緊急度(0-1)'),
+          impact: z.number().min(0).max(1).describe('個人への影響度(0-1)'),
+          solvability: z.number().min(0).max(1).describe('解決可能性(0-1)'),
+        }).describe('個人指標'),
+        social_indicators: z.object({
+          reach: z.number().min(0).max(1).describe('影響範囲(0-1)'),
+          beneficiaries: z.number().min(0).max(1).describe('受益者数(0-1)'),
+          sustainability: z.number().min(0).max(1).describe('持続性(0-1)'),
+        }).describe('社会指標'),
       })).min(1),
     }),
     prompt: `対話履歴から課題を構造化せよ。過去の課題との関連性や変化を考慮すること。
 
-【算出指針(personal_priority)】
-0.0-1.0の範囲で。緊急性、影響度、本人の意志を考慮。
+【個人指標(personal_indicators)】
+0.0-1.0の範囲で、緊急度(urgency)・影響度(impact)・解決可能性(solvability)を個別に評価する。
+personal_priority は個人指標を統合した個人重要度とし、本人の意志も考慮する。
 過去の課題が未解決で関連する場合は重要度を上げること。
+
+【社会指標(social_indicators)】
+0.0-1.0の範囲で、影響範囲(reach)・受益者数(beneficiaries)・持続性(sustainability)を評価する。
+個人の困りごとでも社会への波及が想定できる場合のみ高くし、不明な場合は0.1前後とする。
+社会指標は個人指標と混ぜず、別枠の根拠として扱うこと。
 
 【現在の対話履歴】
 ${history}

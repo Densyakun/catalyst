@@ -16,7 +16,17 @@ interface DiagnosisProblem {
   id?: string;
   context: string;
   goal?: string;
+  priority_score?: number | string | null;
+  personal_priority?: number | string | null;
+  social_impact?: number | string | null;
+  priority_reason?: string | null;
   [key: string]: unknown;
+}
+
+function formatPercent(value: unknown): string {
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return '—';
+  return `${Math.round(num * 100)}`;
 }
 
 interface DiagnosisResultViewProps {
@@ -79,6 +89,38 @@ export default function DiagnosisResultView({ result, onExecute, onBack }: Diagn
               </p>
               <p style={{ fontWeight: 600, marginBottom: '0.2rem', fontSize: '0.85rem' }}>想定されるゴール:</p>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{res.problem.goal}</p>
+
+              {(res.problem.priority_score != null || res.problem.personal_priority != null) && (
+                <div
+                  style={{
+                    marginTop: '0.8rem',
+                    padding: '0.7rem 0.8rem',
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1px solid rgba(99, 102, 241, 0.25)',
+                    borderRadius: '10px',
+                  }}
+                >
+                  <p style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.3rem' }}>優先度の根拠</p>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '0.4rem 1rem',
+                      fontSize: '0.72rem',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <span>総合: {formatPercent(res.problem.priority_score)}</span>
+                    <span>個人: {formatPercent(res.problem.personal_priority)}</span>
+                    <span>社会: {formatPercent(res.problem.social_impact)}</span>
+                  </div>
+                  {res.problem.priority_reason && (
+                    <p style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      {res.problem.priority_reason}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 

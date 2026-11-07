@@ -1,14 +1,22 @@
 import { supabase } from '@/lib/supabase';
 import { StructuredProblem } from '@/lib/types/ai';
-
-const ALPHA = 0.7; // 個人重要度の重み
-const BETA = 0.3;  // 社会影響度の重み
+import {
+  DEFAULT_PRIORITY_CRITERIA,
+  PriorityCriteria,
+  buildPriorityBreakdown,
+  clampScore,
+  scorePersonalIndicators,
+  scoreSocialIndicators,
+} from '@/lib/priority';
 
 /**
  * Prioritizer Agent:
- * 課題に対して「社会影響度」を付与し、最終的な優先スコアを算出します。
+ * 個人指標と社会指標を別々に評価し、その根拠とともに優先スコアを算出します。
  */
-export async function prioritizeProblem(problem: StructuredProblem): Promise<StructuredProblem> {
+export async function prioritizeProblem(
+  problem: StructuredProblem,
+  criteria: PriorityCriteria = DEFAULT_PRIORITY_CRITERIA,
+): Promise<StructuredProblem> {
   // 0. ユーザーの活動量に基づいたブースト計算
   const { data: { user } } = await supabase.auth.getUser();
   let visitBoost = 0;
@@ -26,9 +34,18 @@ export async function prioritizeProblem(problem: StructuredProblem): Promise<Str
     visitBoost = Math.min(0.2, (count || 0) * 0.05);
   }
 
-  const adjustedPersonalPriority = Math.min(1.0, problem.personal_priority + visitBoost);
+  // 1. 個人指標の評価（未提供時は従来の personal_priority をそのまま使う）
+  const personalIndicators = problem.personal_indicators ?? {
+    urgency: clampScore(problem.personal_priority),
+    impact: clampScore(problem.personal_priority),
+    solvability: clampScore(problem.personal_priority),
+  };
+  const personalScore = problem.personal_indicators
+    ? scorePersonalIndicators(problem.personal_indicators, criteria)
+    : clampScore(problem.personal_priority);
+  const adjustedPersonalPriority = clampScore(personalScore + visitBoost);
 
-  // 1. 最も近いクラスターを特定
+  // 2. 最も近いクラスターを特定
   // ※将来的にベクトル検索にアップグレード可能
   const { data: clusters, error } = await supabase
     .from('clusters')
@@ -41,18 +58,40 @@ export async function prioritizeProblem(problem: StructuredProblem): Promise<Str
     bestCluster = clusters.sort((a, b) => b.problem_count - a.problem_count)[0];
   }
 
-  // 2. 社会影響度の算出 (0.0 - 1.0)
+  // 3. 社会指標の評価 (0.0 - 1.0)
   // クラスターのサイズ（課題数）をベースに算出。10件以上で最大値 1.0 とする簡易ロジック。
-  const socialImpact = bestCluster ? Math.min(1.0, bestCluster.problem_count / 10) : 0.1;
+  const clusterSocialImpact = bestCluster ? Math.min(1.0, bestCluster.problem_count / 10) : 0.1;
+  const socialIndicators = problem.social_indicators ?? {
+    reach: clusterSocialImpact,
+    beneficiaries: clusterSocialImpact,
+    sustainability: 0.5,
+  };
+  const socialScore = problem.social_indicators
+    ? scoreSocialIndicators(problem.social_indicators, criteria)
+    : clusterSocialImpact;
 
-  // 3. 総合優先スコアの計算
-  const priorityScore = (ALPHA * adjustedPersonalPriority) + (BETA * socialImpact);
+  // 4. 個人・社会を別枠で統合し、計算根拠を残す
+  const breakdown = buildPriorityBreakdown({
+    personalScore: adjustedPersonalPriority,
+    socialScore,
+    personalIndicators,
+    socialIndicators,
+    criteria,
+    personalEvaluated: Boolean(problem.personal_indicators),
+    socialEvaluated: Boolean(problem.social_indicators),
+    visitBoost,
+    socialSource: bestCluster
+      ? `社会指標はクラスター「${bestCluster.id}」の規模（${bestCluster.problem_count}件）から推定`
+      : '社会指標はクラスター未所属のため推定値',
+  });
 
   return {
     ...problem,
     personal_priority: adjustedPersonalPriority,
-    social_impact: socialImpact,
-    priority_score: priorityScore,
+    social_impact: socialScore,
+    social_priority_score: socialScore,
+    priority_score: breakdown.priorityScore,
+    priority_reason: breakdown.reason,
     cluster_id: bestCluster?.id,
   };
 }
