@@ -169,7 +169,7 @@ export async function POST(req: Request) {
       if (aError) throw aError;
 
       results.push({
-        problem,
+        problem: { ...problem, priority_reason: pData.priority_reason },
         actions: savedActions
       });
     }

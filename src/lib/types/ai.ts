@@ -1,3 +1,5 @@
+import type { PersonalIndicators, SocialIndicators } from '@/lib/priority';
+
 /**
  * Intake エージェントの各ステップの型
  */
@@ -23,6 +25,10 @@ export interface StructuredProblem {
   personal_priority: number; // 個人重要度 (0.0 - 1.0)
   social_impact: number;     // 社会影響度 (0.0 - 1.0)
   priority_score: number;    // 最終優先度スコア
+  social_priority_score?: number; // 社会課題としての優先度（個人と別枠）
+  priority_reason?: string;  // 優先度の計算根拠
+  personal_indicators?: PersonalIndicators; // 緊急度・影響度・解決可能性
+  social_indicators?: SocialIndicators;     // 影響範囲・受益者数・持続性
   cluster_id?: string;       // 紐付くクラスターID
   status?: 'unsolved' | 'solving' | 'solved';
 }
