@@ -48,6 +48,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,6 +73,28 @@ jobs:
         with:
           version: 3.1.0
 
+      - name: Build pooler database URL (IPv4)
+        run: |
+          HOST="${SUPABASE_POOLER_HOST:-}"
+          if [ -z "$HOST" ]; then
+            RESPONSE=$(curl -fsS \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/config/database/pooler" || true)
+            HOST=$(printf '%s' "$RESPONSE" | jq -r 'if type=="array" then (.[] | select(.pool_mode=="session") | .db_host) else (.db_host // empty) end' 2>/dev/null | head -n1)
+          fi
+
+          if [ -z "$HOST" ] || [ "$HOST" = "null" ]; then
+            echo "SUPABASE_POOLER_HOST (Environment variable) がありません。"
+            echo "Dashboard → Connect → Session pooler のホスト（例: aws-0-xxx.pooler.supabase.com）を設定してください。"
+            exit 1
+          fi
+
+          echo "Pooler host: $HOST"
+          ENCODED_PASSWORD=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))')
+          {
+            echo "SUPABASE_DB_URL=postgresql://postgres.${SUPABASE_PROJECT_REF}:${ENCODED_PASSWORD}@${HOST}:5432/postgres?sslmode=require"
+          } >> "$GITHUB_ENV"
+
       - name: Repair baseline (existing database only)
         if: ${{ inputs.action == 'repair_baseline' }}
         run: |
@@ -90,8 +113,7 @@ jobs:
 
           echo "適用済みとして記録するバージョン: $VERSIONS"
           supabase migration repair --yes --status applied $VERSIONS \
-            --remote="$SUPABASE_PROJECT_REF" \
-            --password "$SUPABASE_DB_PASSWORD"
+            --remote="$SUPABASE_DB_URL"
 
           echo "### Baseline repaired" >> "$GITHUB_STEP_SUMMARY"
           echo "既存のマイグレーションを適用済みとして記録しました。" >> "$GITHUB_STEP_SUMMARY"
@@ -99,13 +121,11 @@ jobs:
       - name: Show pending migrations
         run: |
           supabase db push --yes \
-            --remote="$SUPABASE_PROJECT_REF" \
-            --password "$SUPABASE_DB_PASSWORD" \
+            --remote="$SUPABASE_DB_URL" \
             --dry-run
 
       - name: Apply migrations
         if: ${{ inputs.action == 'push' && inputs.dry_run == false }}
         run: |
           supabase db push --yes \
-            --remote="$SUPABASE_PROJECT_REF" \
-            --password "$SUPABASE_DB_PASSWORD"
+            --remote="$SUPABASE_DB_URL"

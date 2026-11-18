@@ -152,8 +152,13 @@ production の dry-run で確認します。
 | Secret | `SUPABASE_ACCESS_TOKEN` | Supabase CLI の認証（production 用） |
 | Secret | `SUPABASE_DB_PASSWORD` | DB パスワード（production 用） |
 | Variable | `SUPABASE_PROJECT_REF` | 対象プロジェクト（production の ref） |
+| Variable | `SUPABASE_POOLER_HOST` | Session pooler のホスト（例: `aws-0-xxx.pooler.supabase.com`） |
 | Environment | `production` | Required reviewers を設定 |
 | Environment | `staging` | 任意。staging プロジェクトがある場合のみ |
+
+GitHub-hosted runner は IPv6 に対応していないため、Direct connection（`db.<ref>.supabase.co`）は使えません。
+Dashboard → **Connect** → **Session pooler** のホストを `SUPABASE_POOLER_HOST` に設定してください。
+ポートは 5432（Session mode）を使います。
 
 ## プレビュー / PR ビルドの変数
 
