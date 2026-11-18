@@ -1,0 +1,7 @@
+-- テスト用の固定データをここに追加する。
+-- auth.users はテスト側で Admin API から作成する（パスワードを SQL に書かないため）。
+--
+-- 例:
+-- INSERT INTO public.fund_purposes (owner_id, title, category)
+-- VALUES ('00000000-0000-0000-0000-000000000000', 'テスト目的', 'test')
+-- ON CONFLICT DO NOTHING;

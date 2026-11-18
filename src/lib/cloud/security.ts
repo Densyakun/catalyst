@@ -34,8 +34,8 @@ export function scanSecrets(text: string): string[] {
 export function scanProtectedPaths(paths: string[]): string[] {
   return unique(
     paths
-      .filter((file) => file && PROTECTED.some((re) => re.test(file)))
-      .map((file) => file.replace(/\\/g, '/')),
+      .map((file) => (file ? file.replace(/\\/g, '/') : ''))
+      .filter((file) => file && PROTECTED.some((re) => re.test(file))),
   );
 }
 

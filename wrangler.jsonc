@@ -11,5 +11,8 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  // Worker Previews は本番設定を継承しない。秘密情報はここに書かず、
+  // ステージング用の公開値だけを Cloudflare の Previews Base に設定する。
+  "previews": {}
 }

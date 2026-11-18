@@ -32,5 +32,24 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Lint (new test/config files)
+        run: npx eslint tests vitest.config.mts vitest.integration.config.mts vitest.env.mts scripts/supabase-test-env.mjs scripts/run-integration-tests.mjs scripts/db-command.mjs
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Start local Supabase
+        run: npm run db:start
+
+      - name: Reset local database (migrations + seed)
+        run: npx supabase db reset
+
+      - name: Integration tests (local Supabase)
+        run: npm run test:integration
+
       - name: Build (OpenNext / Cloudflare)
         run: npm run build:cf
+
+      - name: Stop local Supabase
+        if: always()
+        run: npx supabase stop --no-backup || true

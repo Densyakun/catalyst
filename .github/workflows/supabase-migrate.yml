@@ -1,0 +1,111 @@
+name: Supabase migrate
+
+# 本番・ステージングの DB マイグレーションを適用する。
+# - 実行は master からの手動実行のみ
+# - production は GitHub Environment の保護ルール（Required reviewers）を設定すること
+# - 初回だけ `--dry-run` で適用対象を確認し、既存 DB には migration repair で
+#   baseline を「適用済み」として記録してから実行する（supabase/README.md 参照）
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+      action:
+        description: "push = apply pending migrations / repair_baseline = mark existing migrations as applied"
+        required: true
+        type: choice
+        options:
+          - push
+          - repair_baseline
+      confirmation:
+        description: "repair_baseline のときだけ REPAIR と入力する"
+        required: false
+        type: string
+      dry_run:
+        description: Print pending migrations without applying them
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-migrate-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Guard (master only)
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/master" ]; then
+            echo "マイグレーションは master からのみ実行できます。"
+            exit 1
+          fi
+
+      - name: Verify required settings
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN がありません"; exit 1; }
+          test -n "$SUPABASE_DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD がありません"; exit 1; }
+          test -n "$SUPABASE_PROJECT_REF" || { echo "SUPABASE_PROJECT_REF (Environment variable) がありません"; exit 1; }
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 3.1.0
+
+      - name: Repair baseline (existing database only)
+        if: ${{ inputs.action == 'repair_baseline' }}
+        run: |
+          if [ "${{ inputs.confirmation }}" != "REPAIR" ]; then
+            echo "confirmation に REPAIR と入力してください。"
+            exit 1
+          fi
+
+          # 既存 DB にすでにスキーマがある場合だけ実行する。
+          # このコマンドは SQL を実行せず、migration 履歴に「適用済み」と記録するだけ。
+          VERSIONS=$(ls supabase/migrations | sed 's/_.*//' | tr '\n' ' ')
+          if [ -z "$VERSIONS" ]; then
+            echo "supabase/migrations にファイルがありません。"
+            exit 1
+          fi
+
+          echo "適用済みとして記録するバージョン: $VERSIONS"
+          supabase migration repair --yes --status applied $VERSIONS \
+            --remote="$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+          echo "### Baseline repaired" >> "$GITHUB_STEP_SUMMARY"
+          echo "既存のマイグレーションを適用済みとして記録しました。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show pending migrations
+        run: |
+          supabase db push --yes \
+            --remote="$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD" \
+            --dry-run
+
+      - name: Apply migrations
+        if: ${{ inputs.action == 'push' && inputs.dry_run == false }}
+        run: |
+          supabase db push --yes \
+            --remote="$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
