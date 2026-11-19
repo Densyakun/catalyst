@@ -79,43 +79,47 @@ baseline を再実行して失敗します。スキーマが現在の migrations
 **この作業は SQL を実行しません。** `migration repair` は
 `supabase_migrations.schema_migrations` にバージョンを記録するだけです。
 
-### GitHub Actions から実行する（推奨）
+### ローカルスクリプトから実行する（推奨）
 
-**Actions** → **Supabase migrate** → **Run workflow**
+```powershell
+wsl -d Ubuntu-26.04 -u root -- bash /mnt/c/Users/user/Documents/Catalyst/scripts/repair-baseline.sh
+```
 
-| 入力 | 値 |
-|---|---|
-| environment | `production` |
-| action | `repair_baseline` |
-| confirmation | `REPAIR` |
-| dry_run | `true` |
+`DB password:` に production の DB パスワードを入力します。  
+スクリプトは Session pooler 経由で接続し、全バージョンを「適用済み」として記録したあと、
+`db push --dry-run` で反映待ちを確認します。
 
-承認後、既存の全マイグレーションが「適用済み」として記録され、
-そのあと `db push --dry-run` の結果が表示されます。
-`No migrations to push` なら完了です。
+接続先を変える場合：
+
+```bash
+export SUPABASE_PROJECT_REF=...
+export SUPABASE_POOLER_HOST=...
+export SUPABASE_POOLER_PORT=5432
+```
 
 > 既存 DB にスキーマがある場合だけ実行してください。
 > 空の DB に対して repair すると、SQL を実行しないまま「適用済み」になり、
 > テーブルが作られません。
 
-### ローカル CLI から実行する場合
+### 手動で実行する場合
 
 ```bash
-export SUPABASE_ACCESS_TOKEN=...
+export SUPABASE_PROJECT_REF=...
 export SUPABASE_DB_PASSWORD=...
-REF=<project-ref>
+export SUPABASE_POOLER_HOST=...
 
-# 1. 差分がないことを確認（空に近いこと）
-npx supabase db diff --remote="$REF"
+ENCODED_PASSWORD=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))')
+URL="postgresql://postgres.${SUPABASE_PROJECT_REF}:${ENCODED_PASSWORD}@${SUPABASE_POOLER_HOST}:5432/postgres?sslmode=require"
 
-# 2. 既存の migrations を適用済みとして記録（SQL は実行されない）
 npx supabase migration repair --status applied \
   $(ls supabase/migrations | sed 's/_.*//') \
-  --remote="$REF" --password "$SUPABASE_DB_PASSWORD"
+  --remote="$URL"
 
-# 3. 反映対象の確認
-npx supabase db push --remote="$REF" --password "$SUPABASE_DB_PASSWORD" --dry-run
+npx supabase db push --remote="$URL" --dry-run
 ```
+
+GitHub-hosted runner は IPv6 非対応のため、Direct connection ではなく
+Session pooler の URL を使います。
 
 新規の空プロジェクトでは repair は不要です（そのまま `db push`）。
 
@@ -130,14 +134,10 @@ npm run test:integration
 
 1. PR を作成（CI がローカル Supabase で検証）
 2. レビュー後に master へマージ
-3. GitHub Actions の **Supabase migrate** を手動実行
-   - `action: push`, `dry_run: true` で適用内容を確認
-   - `dry_run: false` で適用（production は Required reviewers で承認）
+3. Supabase の GitHub 連携（Deploy to production）が未適用のマイグレーションを自動適用
 4. アプリをデプロイ
 
-staging プロジェクトがある場合だけ、production の前に staging で同じ操作をします。
-Free プランで staging を用意できない場合は、CI のローカル Supabase テストと
-production の dry-run で確認します。
+Git 連携を使わない場合は、ローカルから `supabase db push` で適用します。
 
 破壊的変更は expand / contract に分けます。
 
@@ -145,20 +145,20 @@ production の dry-run で確認します。
 2. 新コードをデプロイ
 3. 旧コードが消えたら削除を適用
 
-### 必要な GitHub 設定
+### Supabase GitHub 連携の設定
 
-| 種類 | 名前 | 用途 |
-|---|---|---|
-| Secret | `SUPABASE_ACCESS_TOKEN` | Supabase CLI の認証（production 用） |
-| Secret | `SUPABASE_DB_PASSWORD` | DB パスワード（production 用） |
-| Variable | `SUPABASE_PROJECT_REF` | 対象プロジェクト（production の ref） |
-| Variable | `SUPABASE_POOLER_HOST` | Session pooler のホスト（例: `aws-0-xxx.pooler.supabase.com`） |
-| Environment | `production` | Required reviewers を設定 |
-| Environment | `staging` | 任意。staging プロジェクトがある場合のみ |
+GitHub Actions の Secret / Environment は不要です。Supabase Dashboard で設定します。
 
-GitHub-hosted runner は IPv6 に対応していないため、Direct connection（`db.<ref>.supabase.co`）は使えません。
-Dashboard → **Connect** → **Session pooler** のホストを `SUPABASE_POOLER_HOST` に設定してください。
-ポートは 5432（Session mode）を使います。
+| 項目 | 値 |
+|---|---|
+| Repository | `Densyakun/catalyst` |
+| Working directory | `.` |
+| Automatic branching | オフ |
+| Deploy to production | オン |
+
+- Free プランでは Preview Branch は作成されません
+- master への push / マージで、未適用のマイグレーションが自動適用されます
+- ローカルから repair / 確認する場合だけ Session pooler のホストを使います
 
 ## プレビュー / PR ビルドの変数
 
